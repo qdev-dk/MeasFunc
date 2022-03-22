@@ -1,0 +1,7 @@
+sphinx
+sphinx_rtd_theme
+sphinx-jsonschema
+nbsphinx
+nbconvert
+ipython
+jupyter
