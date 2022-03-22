@@ -8,7 +8,7 @@
 # Description
 
 MeasFunc is a repository for functions and classes used for doing measurements at QDev.
-You are alowed to put (almost) everything in this repo. If a spcific function/class/projekt inside this repo matures we will migrateite to a seperatte repository.
+You are alowed to put (almost) everything in this repo. If a spcific function/class/projekt inside this repo matures we will migrate it to a seperatte repository.
 
 
 # Installation
