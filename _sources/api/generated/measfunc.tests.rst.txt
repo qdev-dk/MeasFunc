@@ -1,0 +1,37 @@
+measfunc.tests package
+======================
+
+Submodules
+----------
+
+measfunc.tests.conftest module
+------------------------------
+
+.. automodule:: measfunc.tests.conftest
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+measfunc.tests.test\_config module
+----------------------------------
+
+.. automodule:: measfunc.tests.test_config
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+measfunc.tests.test\_installation module
+----------------------------------------
+
+.. automodule:: measfunc.tests.test_installation
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Module contents
+---------------
+
+.. automodule:: measfunc.tests
+   :members:
+   :undoc-members:
+   :show-inheritance:

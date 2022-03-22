@@ -1,0 +1,31 @@
+measfunc package
+================
+
+Subpackages
+-----------
+
+.. toctree::
+   :maxdepth: 10
+
+   measfunc.conf
+   measfunc.telemetry
+   measfunc.tests
+
+Submodules
+----------
+
+measfunc.hello\_world module
+----------------------------
+
+.. automodule:: measfunc.hello_world
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Module contents
+---------------
+
+.. automodule:: measfunc
+   :members:
+   :undoc-members:
+   :show-inheritance:

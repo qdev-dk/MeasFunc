@@ -1,0 +1,10 @@
+measfunc.conf package
+=====================
+
+Module contents
+---------------
+
+.. automodule:: measfunc.conf
+   :members:
+   :undoc-members:
+   :show-inheritance:

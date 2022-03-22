@@ -1,0 +1,21 @@
+measfunc.telemetry package
+==========================
+
+Submodules
+----------
+
+measfunc.telemetry.telemetry\_functions module
+----------------------------------------------
+
+.. automodule:: measfunc.telemetry.telemetry_functions
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Module contents
+---------------
+
+.. automodule:: measfunc.telemetry
+   :members:
+   :undoc-members:
+   :show-inheritance:
