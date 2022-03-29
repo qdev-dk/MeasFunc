@@ -8,54 +8,60 @@ from time import sleep
 
 
 
-class DMMAcquisition(Instrument):
+class BufferedAcquisitionController(Instrument):
+    """
+    Usage:
+        buffered_acquisition_controller = BufferedAcquisitionController(name, dmm, qdac, **kwargs)
+        zdata = dmm_acquisition()
+    """
     def __init__(self, name: str, dmm: Instrument, qdac: Instrument,
-                 fast: InstrumentChannel,
-                 slow: InstrumentChannel,
-                 fast_n_points: int,
-                 slow_n_points: int,
-                 fast_start: float,
-                 fast_end: float,
-                 slow_start: float,
-                 slow_end: float,
-                 fast_comp: Optional[InstrumentChannel],
-                 slow_comp: Optional[InstrumentChannel],
-                 fast_comp_start: float,
-                 fast_comp_end: float,
-                 slow_comp_start: float,
-                 slow_comp_end: float,
+                 fast_channel: Union[InstrumentChannel, Parameter], # does this also work with a custom qc.Parameter? if not replace with Union[InstrumentChannel, Parameter]
+                 fast_vstart: float,
+                 fast_vend: float,
+                 fast_num_samples: int,
+                 slow_channel: Union[InstrumentChannel, Parameter], # does this also work with a custom qc.Parameter? if not replace with Union[InstrumentChannel, Parameter]
+                 slow_vstart: float,
+                 slow_vend: float,
+                 slow_num_samples: int,
+                 fast_compensating_channel: Optional[InstrumentChannel],
+                 fast_compensating_vstart: Optional[float],
+                 fast_compensating_vend: Optional[float],
+                 slow_compensating_channel: Optional[InstrumentChannel],
+                 slow_compensating_vstart: Optional[float],
+                 slow_compensating_vend: Optional[float],
                  *args, **kwargs):
         super().__init__(name=name, *args, **kwargs)
         self.dmm = dmm
         self.qdac = qdac
         self.qdac_sync_source = 1
 
-        fast_ch = QDacCh(self, 'fast', fast, fast_n_points, fast_start, fast_end)
-        self.add_submodule('fast', fast_ch)
-        self.fast_indexes = []
-        self.fast_indexes.append(self.get_qdac_channel_index(fast))
-        slow_ch = QDacCh(self, 'slow', slow, slow_n_points, slow_start, slow_end)
-        self.add_submodule('slow', slow_ch)
-        self.slow_indexes = []
-        self.slow_indexes.append(self.get_qdac_channel_index(slow))
+        fast_channel_setpoints = QDacChannelSetpoints(self, 'fast_channel_setpoints', fast_channel, fast_num_samples, fast_vstart, fast_vend)
+        self.add_submodule('fast_channel_setpoints', fast_channel_setpoints)
+        self.fast_indices = []
+        self.fast_indices.append(self.get_qdac_channel_index(fast_channel))
+        slow_channel_setpoints = QDacChannelSetpoints(self, 'slow_channel_setpoints', slow_channel, slow_num_samples, slow_vstart, slow_vend)
+        self.add_submodule('slow_channel_setpoints', slow_channel_setpoints)
+        self.slow_indices = []
+        self.slow_indices.append(self.get_qdac_channel_index(slow_channel))
 
-        if fast_comp:
-            fast_comp_ch = QDacCh(self, 'fast_comp', fast_comp, fast_n_points, fast_comp_start, fast_comp_end)
-            self.add_submodule('fast_comp', fast_comp_ch)
-            self.fast_indexes.append(self.get_qdac_channel_index(fast_comp))
-        if slow_comp:
-            slow_comp_ch = QDacCh(self, 'slow_comp', slow_comp, slow_n_points, slow_comp_start, slow_comp_end)
-            self.add_submodule('slow_comp', slow_comp_ch)
-            self.slow_indexes.append(self.get_qdac_channel_index(slow_comp))
+        if fast_compensating_channel:
+            fast_compensating_channel_setpoints = QDacChannelSetpoints(self, 'fast_compensating_channel_setpoints', fast_compensating_channel, fast_num_samples, fast_compensating_vstart, fast_compensating_vend)
+            self.add_submodule('fast_compensating_channel', fast_compensating_channel_setpoints)
+            self.fast_indices.append(self.get_qdac_channel_index(fast_compensating_channel))
+            # Also need to append fast_vstart, fast_stop? 
+        if slow_compensating_channel:
+            slow_compensating_channel_setpoints = QDacChannelSetpoints(self, 'slow_compensating_channel_setpoints', slow_compensating_channel, slow_num_samples, slow_compensating_vstart, slow_compensating_vend)
+            self.add_submodule('slow_compensating_channel', slow_compensating_channel_setpoints)
+            self.slow_indices.append(self.get_qdac_channel_index(slow_compensating_channel))
+            # Also need to append slow_vstart, slow_stop? 
 
-
-        self.add_parameter('dmm2dbuff',
-                           parameter_class=AcquireDMMData,
+        self.add_parameter('buffered_2d_acquisition',
+                           parameter_class=Buffered2DAcquisition,
                            qdac=qdac,
                            dmm=dmm,
-                           vals=Arrays(shape=(self.fast.n_points.get_latest,
-                                              self.slow.n_points.get_latest)),
-                           setpoints=(self.fast.V_axis,self.slow.V_axis)
+                           vals=Arrays(shape=(self.fast_channel.num_samples.get_latest, # should this be the fast_channel_setpoints? 
+                                              self.slow_channel.num_samples.get_latest)),
+                           setpoints=(self.fast_channel.voltage_setpoints, self.slow_channel.voltage_setpoints)
                            )
 
         self.add_parameter('sample_rate',
@@ -66,36 +72,36 @@ class DMMAcquisition(Instrument):
                            get_cmd=None,
                            set_cmd=None)
 
-    def ramp_and_fetch(self):
+    def ramp_voltages_2d_and_fetch(self):
         self.setup_dmm()
         self.sync_channels()
-        fast_vstart = self.get_vstart_list('fast')
-        slow_vstart = self.get_vstart_list('slow')
-        fast_vend = self.get_vend_list('fast')
-        slow_vend = self.get_vend_list('slow')
+        fast_vstart = self.get_vstart_list('fast_channel')
+        slow_vstart = self.get_vstart_list('slow_channel')
+        fast_vend = self.get_vend_list('fast_channel')
+        slow_vend = self.get_vend_list('slow_channel')
         step_length = 1/self.sample_rate()
-        acquisition_time = self.qdac.ramp_voltages_2d(slow_chans=self.slow_indexes,
+        acquisition_time = self.qdac.ramp_voltages_2d(slow_chans=self.slow_indices,
                                                       slow_vstart=slow_vstart,
-                                                      slow_vend=self.slow_vend,
-                                                      fast_chans=self.fast_indexes,
+                                                      slow_vend=slow_vend,
+                                                      fast_chans=self.fast_indices,
                                                       fast_vstart=fast_vstart,
                                                       fast_vend=fast_vend,
                                                       step_length=step_length,
-                                                      slow_steps=self.slow.n_points,
-                                                      fast_steps=self.fast.n_points)
+                                                      slow_steps=self.slow_channel.n_points,
+                                                      fast_steps=self.fast_channel.n_points)
         sleep(acquisition_time+0.1)
         data = self.dmm.fetch()
         self.dmm.display.clear()
-        return np.array(data).reshape(self.fast.nr_points(),self.slow.nr_points())
+        return np.array(data).reshape(self.slow_channel.nr_points(), self.fast_channel.nr_points())
 
     def setup_dmm(self):
-        self._dmm.sample.count(slow_num_samples*fast_num_samples)
+        self._dmm.sample.count(self.slow_channel.n_points*self.fast_channel.n_points)
         self.t_sample = 1/self.root_instrument.sample_rate #0.003 # in seconds
         self._dmm.sample.timer(self.t_sample) 
         self.dmm.init_measurement()
 
     def sync_channels(self):
-        for i in self.fast_indexes + self.slow_indexes[1:]:
+        for i in self.fast_indices + self.slow_indices[1:]:
             self.sync_channel(i)
 
     def sync_channel(self, i):
@@ -104,12 +110,13 @@ class DMMAcquisition(Instrument):
         qdac_channel.sync_delay(0)
         qdac_channel.sync_duration(0.001)
 
-    def get_vstart_list(self,part_name: str):
-        return [ch.V_start() for ch self.channels if part_name in ch.name]
-    def get_vend_list(self,part_name: str):
-        return [ch.V_stop() for ch self.channels if part_name in ch.name]
+    def get_vstart_list(self, channel_identifier:str):
+        return [ch.vstart() for ch in self.channels if channel_identifier in ch.name]
 
-    def get_qdac_channel_index(self, qdac_channel: InstrumentChannel):
+    def get_vend_list(self, channel_identifier: str):
+        return [ch.vend() for ch in self.channels if channel_identifier in ch.name]
+
+    def get_qdac_channel_index(self, qdac_channel: Union[InstrumentChannel, Parameter]):
         try:
             channel_index = int(qdac_channel.name.split('ch_')[1]) # qdac's own channel 
         except IndexError:
@@ -119,43 +126,45 @@ class DMMAcquisition(Instrument):
                 raise ValueError("Invalid channel object. Needs to have channel number in name or label")
         return channel_index
 
-class QDacCh(InstrumentChannel):
-    def __init__(self, parent: Instrument, name: str, n_points, start: float, end: float,  **kwargs):
+class QDacChannelSetpoints(InstrumentChannel):
+    """
+    """
+    def __init__(self, parent: Instrument, name: str, num_samples, vstart: float, vend: float,  **kwargs):
         super().__init__(parent, name, **kwargs)
         self.dim = name
-        self.add_parameter('V_start',
-                           initial_value=start,
+        self.add_parameter('vstart',
+                           initial_value=vstart,
                            unit='V',
                            label='V_'+self.dim+' start',
-                           vals=Numbers(-1,1),
+                           vals=Numbers(-10,10),
                            get_cmd=None,
                            set_cmd=None)
 
-        self.add_parameter('V_stop',
-                           initial_value=end,
+        self.add_parameter('vend',
+                           initial_value=vend,
                            unit='V',
-                           label='V_'+self.dim+' stop',
-                           vals=Numbers(-1,1),
+                           label='V_'+self.dim+' end',
+                           vals=Numbers(-10,10),
                            get_cmd=None,
                            set_cmd=None)
         
-        self.add_parameter('n_points',
+        self.add_parameter('num_samples',
                            unit='',
-                           initial_value=n_points,
+                           initial_value=num_samples,
                            vals=Numbers(1,2e9),
                            get_cmd=None,
                            set_cmd=None)
 
-        self.add_parameter('V_axis',
+        self.add_parameter('voltage_setpoints',
                            unit='V',
-                           label='V Axis '+self.dim,
-                           parameter_class=GeneratedSetPoints,
-                           vals=Arrays(shape=(self.n_points.get_latest,)))
-        self.V_axis.reset()
+                           label='Voltage setpoints '+self.dim,
+                           parameter_class=Setpoints,
+                           vals=Arrays(shape=(self.num_samples.get_latest,)))
+        self.voltage_setpoints.reset()
 
-class GeneratedSetPoints(Parameter):
+class Setpoints(Parameter):
     """
-    A parameter that generates a setpoint array from start, stop and num points
+    A parameter that generates a setpoint array from vstart, vend and num points
     parameters.
     """
     def __init__(self, *args, **kwargs):
@@ -169,16 +178,15 @@ class GeneratedSetPoints(Parameter):
         return self.sweep_array
 
     def reset(self):
-        V_start = self.instrument.V_start.get()
-        V_stop = self.instrument.V_stop.get()
-        nr = self.instrument.n_points.get()
-        self.sweep_array = np.linspace(V_start, V_stop, nr)
+        vstart = self.instrument.vstart.get()
+        vend = self.instrument.vend.get()
+        num_samples = self.instrument.num_samples.get() # n_points 
+        self.sweep_array = np.linspace(vstart, vend, num_samples)
 
-
-class AcquireDMMData(ParameterWithSetpoints):
+class Buffered2DAcquisition(ParameterWithSetpoints):
     def __init__(self, name, *args, **kwargs):
         super().__init__(name=name)
 
     def get_raw(self):
-        return self.Instrument.ramp_and_fetch()
+        return self.Instrument.ramp_voltages_2d_and_fetch()
 
