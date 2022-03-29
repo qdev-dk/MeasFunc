@@ -56,20 +56,17 @@ class BufferedAcquisitionController(Instrument):
             # Also need to append slow_vstart, slow_stop? 
 
         self.add_parameter('buffered_2d_acquisition',
-                           parameter_class=Buffered2DAcquisition,
-                           qdac=qdac,
-                           dmm=dmm,
-                           vals=Arrays(shape=(self.fast_channel_setpoints.num_samples.get_latest, # should this be the fast_channel_setpoints? 
-                                              self.slow_channel_setpoints.num_samples.get_latest)),
+                           vals=Arrays(shape=(self.fast_channel_setpoints.num_samples,self.slow_channel_setpoints.num_samples)),
                            setpoints=(self.fast_channel_setpoints.voltage_setpoints, # get latest? 
-                                      self.slow_channel_setpoints.voltage_setpoints)
+                                      self.slow_channel_setpoints.voltage_setpoints),
+                            parameter_class=Buffered2DAcquisition
                            )
 
         self.add_parameter('sample_rate',
                            initial_value=1/0.003,
                            unit='Hz',
                            label='Sample Rate',
-                           vals=Numbers(1e-3,1),
+                           vals=Numbers(1,1e4),
                            get_cmd=None,
                            set_cmd=None)
 
@@ -96,9 +93,9 @@ class BufferedAcquisitionController(Instrument):
         return np.array(data).reshape(self.slow_channel_setpoints.num_samples.get_latest(), self.fast_channel_setpoints.num_samples.get_latest())
 
     def setup_dmm(self):
-        self._dmm.sample.count(self.slow_channel.num_samples*self.fast_channel_setpoints.num_samples)
+        self.dmm.sample.count(self.slow_channel.num_samples*self.fast_channel_setpoints.num_samples)
         self.t_sample = 1/self.root_instrument.sample_rate #0.003 # in seconds
-        self._dmm.sample.timer(self.t_sample) 
+        self.dmm.sample.timer(self.t_sample) 
         self.dmm.init_measurement()
 
     def sync_channels(self):
@@ -186,8 +183,8 @@ class Setpoints(Parameter):
 
 class Buffered2DAcquisition(ParameterWithSetpoints):
     def __init__(self, name, *args, **kwargs):
-        super().__init__(name=name)
+        super().__init__(name=name, *args, **kwargs)
 
     def get_raw(self):
-        return self.Instrument.ramp_voltages_2d_and_fetch()
+        return self.instrument.ramp_voltages_2d_and_fetch()
 
