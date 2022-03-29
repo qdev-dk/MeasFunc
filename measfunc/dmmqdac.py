@@ -53,7 +53,7 @@ class DMMAcquisition(Instrument):
                            qdac=qdac,
                            dmm=dmm,
                            vals=Arrays(shape=(self.fast.n_points.get_latest,
-                                              self.slow.n_points.get_latest),
+                                              self.slow.n_points.get_latest)),
                            setpoints=(self.fast.V_axis,self.slow.V_axis)
                            )
 
