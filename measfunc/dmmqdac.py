@@ -7,6 +7,7 @@ from typing import Any, Iterable, Tuple, Union, Optional
 from time import sleep
 
 
+
 class DMMAcquisition(Instrument):
     def __init__(self, name: str, dmm: Instrument, qdac: Instrument,
                  fast: InstrumentChannel,
