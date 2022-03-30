@@ -93,8 +93,8 @@ class BufferedAcquisitionController(Instrument):
                            set_cmd=None) 
 
     def ramp_voltages_2d_and_fetch_with_repetition_averaging(self):
-        data = np.zeros((self.slow_channel_setpoints.num_samples.get_latest(), 
-                         self.fast_channel_setpoints.num_samples.get_latest()))
+        data = np.zeros((self.slow_channel_setpoints.num_samples(), 
+                         self.fast_channel_setpoints.num_samples()))
         for i_repetition in range(self.num_repetitions()):
             data_i = self.ramp_voltages_2d_and_fetch_with_retry()
             data += data_i/self.num_repetitions()
@@ -134,11 +134,11 @@ class BufferedAcquisitionController(Instrument):
         sleep(acquisition_time + 0.1)
         data = self.dmm.fetch()
         self.dmm.display.clear()
-        return np.array(data).reshape(self.slow_channel_setpoints.num_samples.get_latest(), 
-                                      self.fast_channel_setpoints.num_samples.get_latest())
+        return np.array(data).reshape(self.slow_channel_setpoints.num_samples(), 
+                                      self.fast_channel_setpoints.num_samples())
 
     def ramp_voltages_and_fetch_with_repetition_averaging(self):
-        data = np.zeros(self.fast_channel_setpoints.num_samples.get_latest())
+        data = np.zeros(self.fast_channel_setpoints.num_samples())
         for i_repetition in range(self.num_repetitions()):
             data_i = self.ramp_voltages_and_fetch_with_retry()
             data += data_i/self.num_repetitions()
@@ -274,7 +274,7 @@ class QDacChannelSetpoints(InstrumentChannel):
                            unit='V',
                            label='Voltage setpoints '+self.dim,
                            parameter_class=Setpoints,
-                           vals=Arrays(shape=(self.num_samples.get_latest,)))
+                           vals=Arrays(shape=(self.num_samples,)))
         self.voltage_setpoints.reset()
 
 
