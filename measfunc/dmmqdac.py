@@ -35,31 +35,27 @@ class BufferedAcquisitionController(Instrument):
         self.qdac_sync_source = 1
         self.channels = []
 
-        #self.add_submodule('fast_channel_'+fast_channel.name, fast_channel)
-        fast_channel_setpoints = QDacChannelSetpoints(self, 'fast_ramp_'+fast_channel.name+'_setpoints', fast_vstart, fast_vend, fast_num_samples)
+        fast_channel_setpoints = QDacChannelSetpoints(self, 'fast_ramp_'+fast_channel.name+'_setpoints', fast_channel, fast_vstart, fast_vend, fast_num_samples)
         self.add_submodule('fast_channel_setpoints', fast_channel_setpoints)
         self.fast_channel_indices = []
         self.fast_channel_indices.append(self.get_qdac_channel_index(fast_channel))
         self.channels.append(fast_channel_setpoints)
 
         if slow_channel:
-            #self.add_submodule('slow_channel_'+slow_channel.name, slow_channel)
-            slow_channel_setpoints = QDacChannelSetpoints(self, 'slow_ramp_'+slow_channel.name+'_setpoints', slow_vstart, slow_vend, slow_num_samples)
+            slow_channel_setpoints = QDacChannelSetpoints(self, 'slow_ramp_'+slow_channel.name+'_setpoints', slow_channel, slow_vstart, slow_vend, slow_num_samples)
             self.add_submodule('slow_channel_setpoints', slow_channel_setpoints)
             self.slow_channel_indices = []
             self.slow_channel_indices.append(self.get_qdac_channel_index(slow_channel))
             self.channels.append(slow_channel_setpoints)
 
         if fast_compensating_channel:
-            #self.add_submodule('fast_compensating_channel_'+fast_compensating_channel.name, fast_compensating_channel)
-            fast_compensating_channel_setpoints = QDacChannelSetpoints(self, 'fast_ramp_compensating_'+fast_compensating_channel.name+'_setpoints', fast_compensating_vstart, fast_compensating_vend, fast_num_samples)
+            fast_compensating_channel_setpoints = QDacChannelSetpoints(self, 'fast_ramp_compensating_'+fast_compensating_channel.name+'_setpoints', fast_compensating_channel, fast_compensating_vstart, fast_compensating_vend, fast_num_samples)
             self.add_submodule('fast_compensating_channel_setpoints', fast_compensating_channel_setpoints)
             self.fast_channel_indices.append(self.get_qdac_channel_index(fast_compensating_channel))
             self.channels.append(fast_compensating_channel_setpoints)
 
         if slow_compensating_channel:
-            #self.add_submodule('slow_compensating_channel_'+slow_compensating_channel.name, slow_compensating_channel)
-            slow_compensating_channel_setpoints = QDacChannelSetpoints(self, 'slow_ramp_compensating_'+slow_compensating_channel.name+'_setpoints', slow_compensating_vstart, slow_compensating_vend, slow_num_samples)
+            slow_compensating_channel_setpoints = QDacChannelSetpoints(self, 'slow_ramp_compensating_'+slow_compensating_channel.name+'_setpoints', slow_compensating_channel, slow_compensating_vstart, slow_compensating_vend, slow_num_samples)
             self.add_submodule('slow_compensating_channel_setpoints', slow_compensating_channel_setpoints)
             self.slow_channel_indices.append(self.get_qdac_channel_index(slow_compensating_channel))
             self.channels.append(slow_compensating_channel_setpoints)
@@ -214,6 +210,26 @@ class BufferedAcquisitionController(Instrument):
         dmm.reset() # default settings, inc. internal trigger 
         dmm.NPLC(NPLC)
 
+    def set_channel_voltages_to_panel_center(self):
+        f_vstart = self.fast_channel_setpoints.vstart()
+        f_vend = self.fast_channel_setpoints.vend()
+        self.fast_channel_setpoints.qdac_channel_voltage((f_vstart + f_vend)/2)
+
+        if (self.slow_channel_setpoints):
+            s_vstart = self.slow_channel_setpoints.vstart()
+            s_vend = self.slow_channel_setpoints.vend()
+            self.slow_channel_setpoints.qdac_channel_voltage((s_vstart + s_vend)/2)
+
+        if (self.fast_compensating_channel_setpoints):
+            fc_vstart = self.fast_compensating_channel_setpoints.vstart()
+            fc_vend = self.fast_compensating_channel_setpoints.vend()
+            self.fast_compensating_channel_setpoints.qdac_channel_voltage((fc_vstart + fc_vend)/2)
+
+        if (self.slow_compensating_channel_setpoints):
+            sc_vstart = self.slow_compensating_channel_setpoints.vstart()
+            sc_vend = self.slow_compensating_channel_setpoints.vend()
+            self.slow_compensating_channel_setpoints.qdac_channel_voltage((sc_vstart + sc_vend)/2)
+
     def sync_channels(self):
         for i in self.fast_channel_indices + self.slow_channel_indices[1:]:
             self.sync_channel(i)
@@ -244,13 +260,21 @@ class BufferedAcquisitionController(Instrument):
 class QDacChannelSetpoints(InstrumentChannel):
     """
     """
-    def __init__(self, parent:Instrument, name:str, vstart:float, vend:float,  num_samples:int, **kwargs):
+    def __init__(self, parent:Instrument, name:str, qdac_channel:Union[InstrumentChannel, Parameter], vstart:float, vend:float,  num_samples:int, **kwargs):
         super().__init__(parent, name, **kwargs)
-        self.dim = name
+        #self._name = name
+        self.qdac_channel = qdac_channel 
+
+        self.add_parameter('qdac_channel_voltage',
+                           unit='V',
+                           label=qdac_channel.label,
+                           get_cmd=self.get_qdac_channel_voltage,
+                           set_cmd=self.set_qdac_channel_voltage)
+
         self.add_parameter('vstart',
                            initial_value=vstart,
                            unit='V',
-                           label='V_'+self.dim+' start',
+                           label='V_'+name+' start',
                            vals=Numbers(-10,10),
                            get_cmd=None,
                            set_cmd=None)
@@ -258,7 +282,7 @@ class QDacChannelSetpoints(InstrumentChannel):
         self.add_parameter('vend',
                            initial_value=vend,
                            unit='V',
-                           label='V_'+self.dim+' end',
+                           label='V_'+name+' end',
                            vals=Numbers(-10,10),
                            get_cmd=None,
                            set_cmd=None)
@@ -272,10 +296,22 @@ class QDacChannelSetpoints(InstrumentChannel):
 
         self.add_parameter('voltage_setpoints',
                            unit='V',
-                           label='Voltage setpoints '+self.dim,
+                           label='Voltage setpoints '+name,
                            parameter_class=Setpoints,
                            vals=Arrays(shape=(self.num_samples,)))
         self.voltage_setpoints.reset()
+
+    def get_qdac_channel_voltage(self):
+        if (type(self.qdac_channel) == InstrumentChannel):
+            return self.qdac_channel.v()
+        elif (type(self.qdac_channel) == Parameter):
+            return self.qdac_channel()
+
+    def set_qdac_channel_voltage(self, v:float):
+        if (type(self.qdac_channel) == InstrumentChannel):
+            self.qdac_channel.v(v)
+        elif (type(self.qdac_channel) == Parameter):
+            self.qdac_channel(v)
 
 
 class Setpoints(Parameter):
