@@ -2,7 +2,7 @@ import numpy as np
 from qcodes.instrument.base import Instrument
 from qcodes.instrument.channel import InstrumentChannel
 from qcodes import Parameter, ParameterWithSetpoints
-from qcodes.utils.validators import Numbers, Arrays
+from qcodes.utils.validators import Numbers, Ints, Arrays
 from typing import Any, Iterable, Tuple, Union, Optional
 from time import sleep
 
@@ -35,28 +35,32 @@ class BufferedAcquisitionController(Instrument):
         self.qdac_sync_source = 1
         self.channels = []
 
-        fast_channel_setpoints = QDacChannelSetpoints(self, 'fast_channel_setpoints', fast_vstart, fast_vend, fast_num_samples)
+        #self.add_submodule('fast_channel_'+fast_channel.name, fast_channel)
+        fast_channel_setpoints = QDacChannelSetpoints(self, 'fast_ramp_'+fast_channel.name+'_setpoints', fast_vstart, fast_vend, fast_num_samples)
         self.add_submodule('fast_channel_setpoints', fast_channel_setpoints)
         self.fast_channel_indices = []
         self.fast_channel_indices.append(self.get_qdac_channel_index(fast_channel))
         self.channels.append(fast_channel_setpoints)
 
         if slow_channel:
-            slow_channel_setpoints = QDacChannelSetpoints(self, 'slow_channel_setpoints', slow_vstart, slow_vend, slow_num_samples)
+            #self.add_submodule('slow_channel_'+slow_channel.name, slow_channel)
+            slow_channel_setpoints = QDacChannelSetpoints(self, 'slow_ramp_'+slow_channel.name+'_setpoints', slow_vstart, slow_vend, slow_num_samples)
             self.add_submodule('slow_channel_setpoints', slow_channel_setpoints)
             self.slow_channel_indices = []
             self.slow_channel_indices.append(self.get_qdac_channel_index(slow_channel))
             self.channels.append(slow_channel_setpoints)
 
         if fast_compensating_channel:
-            fast_compensating_channel_setpoints = QDacChannelSetpoints(self, 'fast_compensating_channel_setpoints', fast_compensating_vstart, fast_compensating_vend, fast_num_samples)
-            self.add_submodule('fast_compensating_channel', fast_compensating_channel_setpoints)
+            #self.add_submodule('fast_compensating_channel_'+fast_compensating_channel.name, fast_compensating_channel)
+            fast_compensating_channel_setpoints = QDacChannelSetpoints(self, 'fast_ramp_compensating_'+fast_compensating_channel.name+'_setpoints', fast_compensating_vstart, fast_compensating_vend, fast_num_samples)
+            self.add_submodule('fast_compensating_channel_setpoints', fast_compensating_channel_setpoints)
             self.fast_channel_indices.append(self.get_qdac_channel_index(fast_compensating_channel))
             self.channels.append(fast_compensating_channel_setpoints)
 
         if slow_compensating_channel:
-            slow_compensating_channel_setpoints = QDacChannelSetpoints(self, 'slow_compensating_channel_setpoints', slow_compensating_vstart, slow_compensating_vend, slow_num_samples)
-            self.add_submodule('slow_compensating_channel', slow_compensating_channel_setpoints)
+            #self.add_submodule('slow_compensating_channel_'+slow_compensating_channel.name, slow_compensating_channel)
+            slow_compensating_channel_setpoints = QDacChannelSetpoints(self, 'slow_ramp_compensating_'+slow_compensating_channel.name+'_setpoints', slow_compensating_vstart, slow_compensating_vend, slow_num_samples)
+            self.add_submodule('slow_compensating_channel_setpoints', slow_compensating_channel_setpoints)
             self.slow_channel_indices.append(self.get_qdac_channel_index(slow_compensating_channel))
             self.channels.append(slow_compensating_channel_setpoints)
 
@@ -66,10 +70,10 @@ class BufferedAcquisitionController(Instrument):
                            parameter_class=Buffered1DAcquisition)
 
         self.add_parameter('buffered_2d_acquisition',
-                           vals=Arrays(shape=(self.fast_channel_setpoints.num_samples, 
-                                              self.slow_channel_setpoints.num_samples)),
-                           setpoints=(self.fast_channel_setpoints.voltage_setpoints, 
-                                      self.slow_channel_setpoints.voltage_setpoints),
+                           vals=Arrays(shape=(self.slow_channel_setpoints.num_samples, 
+                                              self.fast_channel_setpoints.num_samples)),
+                           setpoints=(self.slow_channel_setpoints.voltage_setpoints, 
+                                      self.fast_channel_setpoints.voltage_setpoints),
                            parameter_class=Buffered2DAcquisition)
 
         self.add_parameter('sample_rate',
@@ -78,31 +82,32 @@ class BufferedAcquisitionController(Instrument):
                            label='Sample Rate',
                            vals=Numbers(1,1e4),
                            get_cmd=None,
-                           set_cmd=None)
+                           set_cmd=None)  
 
-    def ramp_voltages_and_fetch(self): 
-        """
-        get 1d trace
-        """
-        self.setup_dmm_memory_and_sample_rate()
-        self.sync_channels()
-        fast_vstart = self.get_vstart_list(channel_identifier='fast')
-        fast_vend = self.get_vend_list(channel_identifier='fast')
-        step_length = 1/self.sample_rate()
-        acquisition_time = self.qdac.ramp_voltages_2d(slow_chans=[], 
-                                                      slow_vstart=[], 
-                                                      slow_vend=[],
-                                                      fast_chans=self.fast_channel_indices, 
-                                                      fast_vstart=fast_vstart,
-                                                      fast_vend=fast_vend, 
-                                                      step_length=step_length,
-                                                      slow_steps=1, 
-                                                      fast_steps=self.fast_channel_setpoints.num_samples)
+        self.add_parameter('num_repetitions',
+                           initial_value=1,
+                           unit='a.u.',
+                           label='Number of repetition averages',
+                           vals=Ints(),
+                           get_cmd=None,
+                           set_cmd=None) 
 
-        sleep(acquisition_time + 0.1)
-        data = self.dmm.fetch()
-        self.dmm.display.clear()
-        return data     
+    def ramp_voltages_2d_and_fetch_with_repetition_averaging(self):
+        data = np.zeros((self.slow_channel_setpoints.num_samples.get_latest(), 
+                         self.fast_channel_setpoints.num_samples.get_latest()))
+        for i_repetition in range(self.num_repetitions()):
+            data_i = self.ramp_voltages_2d_and_fetch_with_retry()
+            data += data_i/self.num_repetitions()
+        return data 
+
+    def ramp_voltages_2d_and_fetch_with_retry(self):
+        try:
+            data = self.ramp_voltages_2d_and_fetch()
+        except: # VisaIOError
+            self.setup_dmm_for_buffered_acquisition()
+            sleep(1)
+            data = self.ramp_voltages_2d_and_fetch()
+        return data 
 
     def ramp_voltages_2d_and_fetch(self):
         """
@@ -131,6 +136,46 @@ class BufferedAcquisitionController(Instrument):
         self.dmm.display.clear()
         return np.array(data).reshape(self.slow_channel_setpoints.num_samples.get_latest(), 
                                       self.fast_channel_setpoints.num_samples.get_latest())
+
+    def ramp_voltages_and_fetch_with_repetition_averaging(self):
+        data = np.zeros(self.fast_channel_setpoints.num_samples.get_latest())
+        for i_repetition in range(self.num_repetitions()):
+            data_i = self.ramp_voltages_and_fetch_with_retry()
+            data += data_i/self.num_repetitions()
+        return data 
+
+    def ramp_voltages_and_fetch_with_retry(self):
+        try:
+            data = self.ramp_voltages_and_fetch()
+        except: # VisaIOError
+            self.setup_dmm_for_buffered_acquisition()
+            sleep(1)
+            data = self.ramp_voltages_and_fetch()
+        return data 
+
+    def ramp_voltages_and_fetch(self): 
+        """
+        get 1d trace
+        """
+        self.setup_dmm_memory_and_sample_rate()
+        self.sync_channels()
+        fast_vstart = self.get_vstart_list(channel_identifier='fast')
+        fast_vend = self.get_vend_list(channel_identifier='fast')
+        step_length = 1/self.sample_rate()
+        acquisition_time = self.qdac.ramp_voltages_2d(slow_chans=[], 
+                                                      slow_vstart=[], 
+                                                      slow_vend=[],
+                                                      fast_chans=self.fast_channel_indices, 
+                                                      fast_vstart=fast_vstart,
+                                                      fast_vend=fast_vend, 
+                                                      step_length=step_length,
+                                                      slow_steps=1, 
+                                                      fast_steps=self.fast_channel_setpoints.num_samples)
+
+        sleep(acquisition_time + 0.1)
+        data = self.dmm.fetch()
+        self.dmm.display.clear()
+        return data   
 
     def setup_dmm_memory_and_sample_rate(self):
         """
@@ -260,7 +305,7 @@ class Buffered1DAcquisition(ParameterWithSetpoints):
         super().__init__(name=name, *args, **kwargs)
 
     def get_raw(self):
-        return self.instrument.ramp_voltages_1d_and_fetch()
+        return self.instrument.ramp_voltages_and_fetch_with_repetition_averaging() #ramp_voltages_1d_and_fetch()
 
 
 class Buffered2DAcquisition(ParameterWithSetpoints):
@@ -268,5 +313,5 @@ class Buffered2DAcquisition(ParameterWithSetpoints):
         super().__init__(name=name, *args, **kwargs)
 
     def get_raw(self):
-        return self.instrument.ramp_voltages_2d_and_fetch()
+        return self.instrument.ramp_voltages_2d_and_fetch_with_repetition_averaging() #ramp_voltages_2d_and_fetch()
 
