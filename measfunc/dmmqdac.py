@@ -41,10 +41,10 @@ class BufferedAcquisitionController(Instrument):
         self.fast_channel_indices.append(self.get_qdac_channel_index(fast_channel))
         self.channel_setpoints.append(fast_channel_setpoints)
 
+        self.slow_channel_indices = []
         if slow_channel:
             slow_channel_setpoints = QDacChannelSetpoints(self, 'slow_ramp_'+slow_channel.name+'_setpoints', slow_channel, slow_vstart, slow_vend, slow_num_samples)
             self.add_submodule('slow_channel_setpoints', slow_channel_setpoints)
-            self.slow_channel_indices = []
             self.slow_channel_indices.append(self.get_qdac_channel_index(slow_channel))
             self.channel_setpoints.append(slow_channel_setpoints)
 
@@ -65,12 +65,13 @@ class BufferedAcquisitionController(Instrument):
                            setpoints=(self.fast_channel_setpoints.voltage_setpoints,),
                            parameter_class=Buffered1DAcquisition)
 
-        self.add_parameter('buffered_2d_acquisition',
-                           vals=Arrays(shape=(self.slow_channel_setpoints.num_samples, 
-                                              self.fast_channel_setpoints.num_samples)),
-                           setpoints=(self.slow_channel_setpoints.voltage_setpoints, 
-                                      self.fast_channel_setpoints.voltage_setpoints),
-                           parameter_class=Buffered2DAcquisition)
+        if (hasattr(self, 'slow_channel_setpoints')):
+            self.add_parameter('buffered_2d_acquisition',
+                            vals=Arrays(shape=(self.slow_channel_setpoints.num_samples, 
+                                                self.fast_channel_setpoints.num_samples)),
+                            setpoints=(self.slow_channel_setpoints.voltage_setpoints, 
+                                        self.fast_channel_setpoints.voltage_setpoints),
+                            parameter_class=Buffered2DAcquisition)
 
         self.add_parameter('sample_rate',
                            initial_value=1/0.003,
@@ -125,7 +126,7 @@ class BufferedAcquisitionController(Instrument):
         """
         get data equivalent to 2d matrix (needs to be reshaped without doNds)
         """
-        if (not self.slow_channel_setpoints):
+        if (hasattr(self, 'slow_channel_setpoints')):
             raise ValueError("Slow channel needs to be set to use ramp_voltages_2d_and_fetch")
         self.setup_dmm_memory_and_sample_rate()
         self.sync_channels()
@@ -182,7 +183,7 @@ class BufferedAcquisitionController(Instrument):
                                                       fast_vend=fast_vend, 
                                                       step_length=step_length,
                                                       slow_steps=1, 
-                                                      fast_steps=self.fast_channel_setpoints.num_samples)
+                                                      fast_steps=self.fast_channel_setpoints.num_samples())
 
         sleep(acquisition_time + 0.1)
         data = self.dmm.fetch()
@@ -194,7 +195,7 @@ class BufferedAcquisitionController(Instrument):
         Some settings need to be set correctly before running this
         See setup_dmm_for_buffered_acquisition
         """
-        slow_num_samples = (self.slow_channel_setpoints.num_samples() if (self.slow_channel_setpoints) else 1)
+        slow_num_samples = (self.slow_channel_setpoints.num_samples() if (hasattr(self, 'slow_channel_setpoints')) else 1)
         self.dmm.sample.count(slow_num_samples*self.fast_channel_setpoints.num_samples())
         self.t_sample = 1/self.root_instrument.sample_rate() #0.003 # in seconds
         self.dmm.sample.timer(self.t_sample) 
@@ -242,17 +243,17 @@ class BufferedAcquisitionController(Instrument):
         f_vend = self.fast_channel_setpoints.vend()
         self.fast_channel_setpoints.qdac_channel_voltage((f_vstart + f_vend)/2)
 
-        if (self.slow_channel_setpoints):
+        if (hasattr(self, 'slow_channel_setpoints')):
             s_vstart = self.slow_channel_setpoints.vstart()
             s_vend = self.slow_channel_setpoints.vend()
             self.slow_channel_setpoints.qdac_channel_voltage((s_vstart + s_vend)/2)
 
-        if (self.fast_compensating_channel_setpoints):
+        if (hasattr(self, 'fast_compensating_channel_setpoints')):
             fc_vstart = self.fast_compensating_channel_setpoints.vstart()
             fc_vend = self.fast_compensating_channel_setpoints.vend()
             self.fast_compensating_channel_setpoints.qdac_channel_voltage((fc_vstart + fc_vend)/2)
 
-        if (self.slow_compensating_channel_setpoints):
+        if (hasattr(self, 'slow_compensating_channel_setpoints')):
             sc_vstart = self.slow_compensating_channel_setpoints.vstart()
             sc_vend = self.slow_compensating_channel_setpoints.vend()
             self.slow_compensating_channel_setpoints.qdac_channel_voltage((sc_vstart + sc_vend)/2)
