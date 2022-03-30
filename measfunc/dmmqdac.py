@@ -10,8 +10,8 @@ class BufferedAcquisitionController(Instrument):
     """
     Meant to be used with a QDac I and a Keysight digital multimeter
     Usage:
-        buffered_acquisition_controller = BufferedAcquisitionController(name, dmm, qdac, **kwargs)
-        zdata = buffered_acquisition_controller()
+        buffered_acquisition_controller = BufferedAcquisitionController(name, dmm, qdac, **voltage_ramps)
+        zdata = buffered_acquisition_controller.buffered_2d_acquisition()
     """
     def __init__(self, name:str, dmm:Instrument, qdac:Instrument,
                  fast_channel:Union[InstrumentChannel, Parameter], 
@@ -224,6 +224,16 @@ class BufferedAcquisitionController(Instrument):
         self.dmm.reset() # default settings, inc. internal trigger 
         self.dmm.NPLC(self.NPLC())
 
+    def setup_channel_setpoints(self, channel_setpoints:str, **kwargs):
+        if (not hasattr(self, channel_setpoints)):
+            raise ValueError("Please provide a valid channel_setpoints")
+        for k, v in kwargs.items():
+            if hasattr(getattr(self, channel_setpoints), k):
+                getattr(getattr(self, channel_setpoints), k)(v)
+            else:
+                print("Warning: trying to set nonexistant parameter ",k," for ",getattr(self, channel_setpoints).name,"\nNot setting")
+        getattr(self, channel_setpoints).voltage_setpoints.set_linspace() 
+
     def set_channel_voltages_to_panel_center(self):
         """
         Set dc voltages to the middle of the ramped voltages
@@ -316,7 +326,7 @@ class QDacChannelSetpoints(InstrumentChannel):
                            label='Voltage setpoints '+name,
                            parameter_class=Setpoints,
                            vals=Arrays(shape=(self.num_samples,)))
-        self.voltage_setpoints.reset()
+        self.voltage_setpoints.set_linspace()
 
     def get_qdac_channel_voltage(self):
         if (type(self.qdac_channel) == InstrumentChannel):
@@ -338,15 +348,16 @@ class Setpoints(Parameter):
     """
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.reset()
+        self.set_linspace()
 
     def set_raw(self, value: Iterable[Union[float, int]]) -> None:
         self.sweep_array = value
 
     def get_raw(self):
+        #self.set_linspace()
         return self.sweep_array
 
-    def reset(self):
+    def set_linspace(self):
         vstart = self.instrument.vstart.get()
         vend = self.instrument.vend.get()
         num_samples = self.instrument.num_samples.get() # num_samples 
