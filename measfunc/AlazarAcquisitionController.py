@@ -117,7 +117,7 @@ class AlazarAcquisitionController(AcquisitionController):
                            
         # Hardware constants
         self._min_sample_step = self._get_alazar().samples_divisor 
-        self._min_num_samples = self._get_alazar().min_num_samples 
+        self._min_num_samples = self._get_alazar().samples_per_record.vals._min_value 
         #self._pretrigger_alignment = self._get_alazar().pretrigger_alignment 
         self._valid_sample_rates = list(self._get_alazar().sample_rate.vals._values) 
         indices_to_remove = [i_sr for i_sr, sr in enumerate(self._valid_sample_rates) if (type(sr) == str)]
@@ -337,7 +337,8 @@ class AlazarAcquisitionController(AcquisitionController):
         # When you enable more than one channels, the original ordering gives you "multiplexed" data, where 
         # channel_data['A'] corresponds to data[0::num_enabled_channels], channel_data['B'] corresponds to data[1::num_enabled_channels], etc.
         # In that case, all channel_data elements have data from all channels. 
-        reshaped_buf = self.buffer.reshape(number_of_buffers, self.num_enabled_channels(), records_per_buffer, samples_per_record) 
+        reshaped_buf = self.reshape_buffer(number_of_buffers, records_per_buffer, samples_per_record)
+        #self.buffer.reshape(number_of_buffers, self.num_enabled_channels(), records_per_buffer, samples_per_record) 
         
         channel_data = {}
         for i_ch, ch in enumerate(self._get_alazar().channel_selection()):
@@ -346,6 +347,12 @@ class AlazarAcquisitionController(AcquisitionController):
         return np.array([channel_data[ch] for ch in channel_data.keys()])
     # # 
     # # 
+
+    def reshape_buffer(self, number_of_buffers, records_per_buffer, samples_per_record):
+            #self.buffer.reshape(number_of_buffers, self.num_enabled_channels(), records_per_buffer, samples_per_record) 
+
+            return np.moveaxis(self.buffer.reshape(number_of_buffers, records_per_buffer, samples_per_record, self.num_enabled_channels()),-1,1) 
+
     def postprocess_channel_data(self, channel_data:np.ndarray, channel_index:int):
         """
         Average over buffers, records, samples
