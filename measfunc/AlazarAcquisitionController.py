@@ -1,3 +1,5 @@
+import copy 
+from functools import partial 
 import inspect 
 import logging 
 from math import floor 
@@ -8,6 +10,7 @@ import numpy as np
 
 from qcodes import Parameter, ParameterWithSetpoints
 from qcodes.instrument_drivers.AlazarTech.ATS import AcquisitionController
+from qcodes.instrument_drivers.AlazarTech.constants import API_SUCCESS, AlazarParameter, Channel 
 from qcodes.utils.validators import Arrays
 
 logger = logging.getLogger(__name__)
@@ -49,14 +52,28 @@ class AlazarAcquisitionController(AcquisitionController):
             'integrate_samples': None} 
         self.update_dictionary(self.shape_info, ignore_invalid=True, delete_kwarg=True, kwargs=kwargs)
         
-        super().__init__(name, alazar_name, **kwargs)
-        if (awg is not None):
+        if (awg is not None): # TODO: replace awg, awg_run_command and awg_stop_command with a dictionary 
             self.awg = awg 
-            self.awg_run_command = (kwargs['awg_run_command'] if ('awg_run_command' in kwargs.keys()) else 'run')
-            self.awg_stop_command = (kwargs['awg_stop_command'] if ('awg_stop_command' in kwargs.keys()) else 'stop')
+            if ('awg_run_command' in kwargs.keys()):
+                self.awg_run_command = kwargs['awg_run_command']
+                del kwargs['awg_run_command']
+            else:
+                self.awg_run_command = 'run'
+                
+            if ('awg_stop_command' in kwargs.keys()):
+                self.awg_stop_command = kwargs['awg_stop_command']
+                del kwargs['awg_stop_command']
+            else:
+                self.awg_stop_command = 'stop'
+            
+            #self.awg_stop_command = ((kwargs['awg_stop_command']; del kwargs['awg_stop_command']) if ('awg_stop_command' in kwargs.keys()) else 'stop')
         else:
             self.awg = None
             warnings.warn("Controller not initialized with an AWG. Not able to acquire triggered data from pulsed/burst-mode waveforms.")
+        super().__init__(name, alazar_name, **kwargs)
+        # # 
+        # # EXPERIMENTAL 
+        self.software_trigger_at_aux_auxiliary_signal = False 
         
         self.acquisition_config = {}
         for acquisition_parameter in inspect.signature(self._get_alazar().acquire).parameters.keys():
@@ -70,24 +87,36 @@ class AlazarAcquisitionController(AcquisitionController):
         self.add_parameter('num_enabled_channels',
                            label='number of enabled channels',
                            get_cmd=self._get_num_enabled_channels)
+                           
+        self.add_parameter('dataset_samples_per_record',
+                           label='samples per record in final dataset',
+                           get_cmd=partial(self._get_dataset_dimension, 'samples_per_record'))
+                           
+        self.add_parameter('dataset_records_per_buffer',
+                           label='records per buffer in final dataset',
+                           get_cmd=partial(self._get_dataset_dimension, 'records_per_buffer'))
+                           
+        self.add_parameter('dataset_buffers_per_acquisition',
+                           label='buffers per acquisition in final dataset',
+                           get_cmd=partial(self._get_dataset_dimension, 'buffers_per_acquisition'))
 
         self.add_parameter('time_setpoints',
                            unit='s',
                            label='time setpoints',
                            parameter_class=TimeSetpoints,
-                           vals=Arrays(shape=(self._get_alazar().samples_per_record.get,)))
+                           vals=Arrays(shape=(self.dataset_samples_per_record.get,))) #(self._get_alazar().samples_per_record.get,)))
                            
         self.add_parameter('record_indices',
                            unit='a.u.',
                            label='record indices',
                            parameter_class=IndexSetpoints,
-                           vals=Arrays(shape=(self._get_alazar().records_per_buffer.get,)))
+                           vals=Arrays(shape=(self.dataset_records_per_buffer.get,)))
                            
         self.add_parameter('buffer_indices',
                            unit='a.u.',
                            label='buffer indices',
                            parameter_class=IndexSetpoints,
-                           vals=Arrays(shape=(self._get_alazar().buffers_per_acquisition.get,)))
+                           vals=Arrays(shape=(self.dataset_buffers_per_acquisition.get,)))
                            
         self.add_parameter('channel_indices',
                            unit='a.u.',
@@ -103,16 +132,16 @@ class AlazarAcquisitionController(AcquisitionController):
         self.add_parameter(name='trace_acquisition',
                            parameter_class=TraceAcquisition,
                            vals=Arrays(shape=(self.num_enabled_channels.get,
-                                              self._get_alazar().samples_per_record.get)),
+                                              self.dataset_samples_per_record.get)), #self._get_alazar().samples_per_record.get)),
                            setpoints=(self.channel_indices, 
                                       self.time_setpoints))
                            
         self.add_parameter(name='dataset_acquisition',
                            parameter_class=DatasetAcquisition,
                            vals=Arrays(shape=(self.num_enabled_channels.get, 
-                                              self._get_alazar().buffers_per_acquisition.get, 
-                                              self._get_alazar().records_per_buffer.get,
-                                              self._get_alazar().samples_per_record.get)),
+                                              self.dataset_buffers_per_acquisition.get, 
+                                              self.dataset_records_per_buffer.get,
+                                              self.dataset_samples_per_record.get)),
                            setpoints=(self.channel_indices, self.buffer_indices, self.record_indices, self.time_setpoints))
                            
         # Hardware constants
@@ -135,10 +164,49 @@ class AlazarAcquisitionController(AcquisitionController):
         return value
     # # 
     # # 
+    def reset_alazar(self):
+        """
+        EXPERIMENTAL
+        """
+        alazar = self._get_alazar()
+        try:
+            error_code = alazar.api.abort_async_read(alazar._handle)
+            if (error_code != API_SUCCESS):
+                warnings.warn("Aborting asynchronous read failed with error code ",error_code)
+        except:
+            warnings.warn("Could not abort asynchronous read")
+            
+        try:
+            alazar.clear_buffers()
+        except:
+            warnings.warn("Could not clear buffers")
+            
+        try:
+            alazar.set_default_settings()
+        except:
+            warnings.warn("Could not set default settings")
+    # # 
+    # # 
     def _get_num_enabled_channels(self):
         """
         """
         return self._get_alazar().get_num_channels(self._get_alazar().channel_selection.raw_value)
+    # # 
+    # #
+    def _get_dataset_dimension(self, axis:str):
+        """
+        Get size of dataset along axis after averaging is taken into account
+        """
+        valid_axes = ['samples_per_record', 'records_per_buffer', 'buffers_per_acquisition']
+        if (axis not in valid_axes): 
+            raise ValueError("Invalid axis. Must be in ",valid_axes) 
+        if (axis == 'buffers_per_acquisition'):
+            axis_size = (self._get_alazar().buffers_per_acquisition() if (self.shape_info['average_buffers'] == False) else 1)
+        elif (axis == 'records_per_buffer'):
+            axis_size = (self._get_alazar().records_per_buffer() if (self.shape_info['average_records'] == False) else 1)
+        elif (axis == 'samples_per_record'):  
+            axis_size = (self._get_alazar().samples_per_record() if (self.shape_info['integrate_samples'] == False) else 1) 
+        return axis_size             
     # # 
     # #     
     def raw_samples_to_voltages(self, raw_samples, bits_per_sample:int, voltage_range:float, unsigned:bool=True):
@@ -185,6 +253,12 @@ class AlazarAcquisitionController(AcquisitionController):
         valid_samples_per_record = samples_per_record  + (self._min_sample_step - sample_remainder) % self._min_sample_step
         valid_samples_per_record = int(max(valid_samples_per_record, self._min_num_samples))
         return valid_samples_per_record 
+    # # 
+    # # 
+    def find_and_set_compatible_acquisition_time_and_samples_per_record(self, sample_rate:float, samples_per_record:int):
+        """
+        """
+        pass 
     # # 
     # # 
     def find_and_set_compatible_sample_rate_and_samples_per_record(self, acquisition_time:float, samples_per_record:int):
@@ -296,6 +370,17 @@ class AlazarAcquisitionController(AcquisitionController):
                 getattr(self.awg, self.awg_run_command)() 
             except:
                 warnings.warn("Could not start awg with self.awg."+self.awg_run_command+"()")
+        # # 
+        # # EXPERIMENTAL
+        if (self.software_trigger_at_aux_auxiliary_signal == True):
+            alazar = self._get_alazar()
+            #print("getting aux level...")
+            aux_level = alazar.api.get_parameter_(handle=alazar._handle, channel=Channel.ALL, 
+                parameter=AlazarParameter.GET_AUX_INPUT_LEVEL)
+            #print("measured aux level: ", aux_level)
+            if (aux_level > 0):
+                alazar.api.force_trigger_enable(alazar._handle) 
+                alazar.api.force_trigger(alazar._handle)
     # # 
     # # 
     def handle_buffer(self, data: np.ndarray, buffernum: int=0):
@@ -321,7 +406,13 @@ class AlazarAcquisitionController(AcquisitionController):
         """
         if (self.awg is not None):
             try: 
-                getattr(self.awg, self.awg_stop_command)() 
+                # # 
+                # # EXPERIMENTAL; clean up 
+                if (hasattr(self.awg, 'get_state')):
+                    if (self.awg.get_state() == 'Running'):
+                        getattr(self.awg, self.awg_stop_command)() 
+                    else:
+                        getattr(self.awg, self.awg_stop_command)() 
             except:
                 warnings.warn("Could not stop awg with self.awg."+self.awg_stop_command+"()")
                 
@@ -337,7 +428,10 @@ class AlazarAcquisitionController(AcquisitionController):
         # When you enable more than one channels, the original ordering gives you "multiplexed" data, where 
         # channel_data['A'] corresponds to data[0::num_enabled_channels], channel_data['B'] corresponds to data[1::num_enabled_channels], etc.
         # In that case, all channel_data elements have data from all channels. 
-        reshaped_buf = self.buffer.reshape(number_of_buffers, self.num_enabled_channels(), records_per_buffer, samples_per_record) 
+        if (self._get_alazar().get_idn()['bits_per_sample'] == 14):
+            reshaped_buf = self.buffer.reshape(number_of_buffers, self.num_enabled_channels(), records_per_buffer, samples_per_record) 
+        elif (self._get_alazar().get_idn()['bits_per_sample'] == 12): 
+            reshaped_buf = self.buffer.reshape(number_of_buffers, records_per_buffer, samples_per_record, self.num_enabled_channels())
         
         channel_data = {}
         for i_ch, ch in enumerate(self._get_alazar().channel_selection()):
@@ -400,7 +494,7 @@ class TimeSetpoints(Parameter):
 
     def get_raw(self):
         acquisition_time = self.instrument.acquisition_time 
-        return np.linspace(0, acquisition_time, self.instrument._get_alazar().samples_per_record())
+        return np.linspace(0, acquisition_time, self.instrument.dataset_samples_per_record()) #self.instrument._get_alazar().samples_per_record())
 # # 
 # #                    
 class TraceAcquisition(ParameterWithSetpoints):
@@ -428,9 +522,9 @@ class IndexSetpoints(Parameter):
         if (self.name == 'channel_indices'):
             max_index = self.instrument.num_enabled_channels() 
         elif (self.name == 'buffer_indices'):
-            max_index = (self.instrument._get_alazar().buffers_per_acquisition() if (self.instrument.shape_info['average_buffers'] == False) else 1)
+            max_index = self.instrument.dataset_buffers_per_acquisition()
         elif (self.name == 'record_indices'):
-            max_index = (self.instrument._get_alazar().records_per_buffer() if (self.instrument.shape_info['average_records'] == False) else 1)
+            max_index = self.instrument.dataset_records_per_buffer() 
         return max_index 
 
     def get_raw(self):
