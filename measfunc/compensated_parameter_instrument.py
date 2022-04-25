@@ -47,4 +47,4 @@ class CompensatedParameter(Parameter):
         self.root_instrument.compensating_parameter(value*slope+intercept)
 
     def get_raw(self):
-        self.root_instrument.prime_parameter.get()
+        return self.root_instrument.prime_parameter.get()
