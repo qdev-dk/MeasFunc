@@ -68,9 +68,6 @@ class AlazarAcquisitionController(AcquisitionController):
             self.awg = None
             warnings.warn("Controller not initialized with an AWG. Not able to acquire triggered data from pulsed/burst-mode waveforms.")
         super().__init__(name, alazar_name, **kwargs)
-        # #
-        # # EXPERIMENTAL
-        self.software_trigger_at_aux_auxiliary_signal = False
 
         self.acquisition_config = {}
         for acquisition_parameter in inspect.signature(self._get_alazar().acquire).parameters.keys():
@@ -163,27 +160,6 @@ class AlazarAcquisitionController(AcquisitionController):
                                                   **self.acquisition_config)
         return value
 
-    def reset_alazar(self):
-        """
-        EXPERIMENTAL
-        """
-        alazar = self._get_alazar()
-        try:
-            error_code = alazar.api.abort_async_read(alazar._handle)
-            if (error_code != API_SUCCESS):
-                warnings.warn("Aborting asynchronous read failed with error code ", error_code)
-        except Exception:
-            warnings.warn("Could not abort asynchronous read")
-
-        try:
-            alazar.clear_buffers()
-        except Exception:
-            warnings.warn("Could not clear buffers")
-
-        try:
-            alazar.set_default_settings()
-        except Exception:
-            warnings.warn("Could not set default settings")
 
     def _get_num_enabled_channels(self):
         """
@@ -366,14 +342,7 @@ class AlazarAcquisitionController(AcquisitionController):
                 getattr(self.awg, self.awg_run_command)()
             except Exception:
                 warnings.warn("Could not start awg with self.awg."+self.awg_run_command+"()")
-        # # EXPERIMENTAL
-        if self.software_trigger_at_aux_auxiliary_signal:
-            alazar = self._get_alazar()
-            aux_level = alazar.api.get_parameter_(handle=alazar._handle, channel=Channel.ALL,
-                                                  parameter=AlazarParameter.GET_AUX_INPUT_LEVEL)
-            if (aux_level > 0):
-                alazar.api.force_trigger_enable(alazar._handle)
-                alazar.api.force_trigger(alazar._handle)
+
 
     def handle_buffer(self, data: np.ndarray, buffernum: int = 0):
         """
