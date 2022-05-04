@@ -20,7 +20,6 @@ class AlazarAcquisitionController(AcquisitionController):
 
         acquisition_controller = AlazarAcquisitionController(alazar_name='Alazar_ATS9440',
                                                              name='acquisition_controller',
-                                                             awg=awg,
                                                              average_buffers=True,
                                                              average_records=False,
                                                              integrate_samples=False)
@@ -43,7 +42,7 @@ class AlazarAcquisitionController(AcquisitionController):
           - add functionality for software demodulation (which was removed here)
           - add functionality for "filtering" (which was removed here), but please make it readable/explain what it is
     """
-    def __init__(self, name, alazar_name: str, awg=None, **kwargs) -> None:
+    def __init__(self, name, alazar_name: str, **kwargs) -> None:
         self.shape_info = {
             'average_buffers': None,
             'average_records': None,
@@ -51,22 +50,6 @@ class AlazarAcquisitionController(AcquisitionController):
         self.update_dictionary(self.shape_info, ignore_invalid=True,
                                delete_kwarg=True, kwargs=kwargs)
 
-        if (awg is not None):  # TODO: replace awg, awg_run_command and awg_stop_command with a dictionary
-            self.awg = awg
-            if ('awg_run_command' in kwargs.keys()):
-                self.awg_run_command = kwargs['awg_run_command']
-                del kwargs['awg_run_command']
-            else:
-                self.awg_run_command = 'run'
-
-            if ('awg_stop_command' in kwargs.keys()):
-                self.awg_stop_command = kwargs['awg_stop_command']
-                del kwargs['awg_stop_command']
-            else:
-                self.awg_stop_command = 'stop'
-        else:
-            self.awg = None
-            warnings.warn("Controller not initialized with an AWG. Not able to acquire triggered data from pulsed/burst-mode waveforms.")
         super().__init__(name, alazar_name, **kwargs)
 
         self.acquisition_config = {}
@@ -337,11 +320,7 @@ class AlazarAcquisitionController(AcquisitionController):
             self.buffer = np.zeros((buffers_per_acquisition, samples_per_record*records_per_buffer*num_enabled_channels))
 
     def pre_acquire(self):
-        if (self.awg is not None):
-            try:
-                getattr(self.awg, self.awg_run_command)()
-            except Exception:
-                warnings.warn("Could not start awg with self.awg."+self.awg_run_command+"()")
+        pass
 
 
     def handle_buffer(self, data: np.ndarray, buffernum: int = 0):
@@ -364,17 +343,6 @@ class AlazarAcquisitionController(AcquisitionController):
     def post_acquire(self) -> Union[np.ndarray, Tuple[np.ndarray, ...]]:
         """
         """
-        if (self.awg is not None):
-            try:
-                # #
-                # # EXPERIMENTAL; clean up
-                if (hasattr(self.awg, 'get_state')):
-                    if (self.awg.get_state() == 'Running'):
-                        getattr(self.awg, self.awg_stop_command)()
-                    else:
-                        getattr(self.awg, self.awg_stop_command)()
-            except Exception:
-                warnings.warn("Could not stop awg with self.awg."+self.awg_stop_command+"()")
 
         samples_per_record = self._get_alazar().samples_per_record()
         records_per_buffer = self._get_alazar().records_per_buffer()
