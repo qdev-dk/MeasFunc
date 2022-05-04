@@ -115,14 +115,12 @@ class AlazarAcquisitionController(AcquisitionController):
                                               self.dataset_samples_per_record.get)),
                            setpoints=(self.channel_indices,
                                       self.time_setpoints))
+        data_setpoints, data_shape = self._get_data_setpoints_and_vals()
 
         self.add_parameter(name='dataset_acquisition',
                            parameter_class=DatasetAcquisition,
-                           vals=Arrays(shape=(self.num_enabled_channels.get,
-                                              self.dataset_buffers_per_acquisition.get,
-                                              self.dataset_records_per_buffer.get,
-                                              self.dataset_samples_per_record.get)),
-                           setpoints=(self.channel_indices, self.buffer_indices, self.record_indices, self.time_setpoints))
+                           vals=Arrays(shape=data_shape),
+                           setpoints=data_setpoints)
 
         # Hardware constants
         self._min_sample_step = self._get_alazar().samples_divisor
@@ -148,6 +146,24 @@ class AlazarAcquisitionController(AcquisitionController):
         """
         """
         return self._get_alazar().get_num_channels(self._get_alazar().channel_selection.raw_value)
+
+    def _get_data_setpoints_and_vals(self):
+        setpoints = []
+        vals_shape = []
+
+        if self.num_enabled_channels.get() > 1:
+            setpoints.append(self.channel_indices)
+            vals_shape.append(self.num_enabled_channels.get)
+        if not self.shape_info['average_buffers']:
+            setpoints.append(self.buffer_indices)
+            vals_shape.append(self.dataset_buffers_per_acquisition.get)
+        if not self.shape_info['average_records']:
+            setpoints.append(self.record_indices)
+            vals_shape.append(self.dataset_records_per_buffer.get)
+        if not self.shape_info['integrate_samples']:
+            setpoints.append(self.time_setpoints)
+            vals_shape.append(self.dataset_samples_per_record.get)
+        return tuple(setpoints), tuple(vals_shape)
 
     def _get_dataset_dimension(self, axis: str):
         """
@@ -481,4 +497,4 @@ class DatasetAcquisition(ParameterWithSetpoints):
 
     def get_raw(self):
         data = self.instrument.do_acquisition()
-        return data
+        return np.squeeze(data)
