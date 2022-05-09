@@ -7,7 +7,6 @@ from functools import partial
 from typing import Union, Tuple
 from qcodes import Parameter, ParameterWithSetpoints
 from qcodes.instrument_drivers.AlazarTech.ATS import AcquisitionController
-from qcodes.instrument_drivers.AlazarTech.constants import API_SUCCESS, AlazarParameter, Channel
 from qcodes.utils.validators import Arrays
 
 logger = logging.getLogger(__name__)
@@ -104,23 +103,12 @@ class AlazarAcquisitionController(AcquisitionController):
                            parameter_class=IndexSetpoints,
                            vals=Arrays(shape=(self.num_enabled_channels.get,)))
 
-        self.add_parameter(name='sample_acquisition',
-                           parameter_class=SampleAcquisition,
-                           vals=Arrays(shape=(self.num_enabled_channels.get,)),
-                           setpoints=(self.channel_indices,))
-
-        self.add_parameter(name='trace_acquisition',
-                           parameter_class=TraceAcquisition,
-                           vals=Arrays(shape=(self.num_enabled_channels.get,
-                                              self.dataset_samples_per_record.get)),
-                           setpoints=(self.channel_indices,
-                                      self.time_setpoints))
-        data_setpoints, data_shape = self._get_data_setpoints_and_vals()
-
+        self._update_data_setpoints_and_vals()
         self.add_parameter(name='dataset_acquisition',
                            parameter_class=DatasetAcquisition,
-                           vals=Arrays(shape=data_shape),
-                           setpoints=data_setpoints)
+                           vals=Arrays(shape=self.data_shape),
+                           setpoints=self.data_setpoints
+                           )
 
         # Hardware constants
         self._min_sample_step = self._get_alazar().samples_divisor
@@ -141,13 +129,12 @@ class AlazarAcquisitionController(AcquisitionController):
                                                   **self.acquisition_config)
         return value
 
-
     def _get_num_enabled_channels(self):
         """
         """
         return self._get_alazar().get_num_channels(self._get_alazar().channel_selection.raw_value)
 
-    def _get_data_setpoints_and_vals(self):
+    def _update_data_setpoints_and_vals(self):
         setpoints = []
         vals_shape = []
 
@@ -163,7 +150,8 @@ class AlazarAcquisitionController(AcquisitionController):
         if not self.shape_info['integrate_samples']:
             setpoints.append(self.time_setpoints)
             vals_shape.append(self.dataset_samples_per_record.get)
-        return tuple(setpoints), tuple(vals_shape)
+        self.data_setpoints = tuple(setpoints)
+        self.data_shape = tuple(vals_shape)
 
     def _get_dataset_dimension(self, axis: str):
         """
@@ -310,6 +298,9 @@ class AlazarAcquisitionController(AcquisitionController):
         self.acquisition_time = (1.0/self._get_alazar().sample_rate())*self._get_alazar().samples_per_record()
 
         self.alazar_config(**alazar_kwargs)
+        self._update_data_setpoints_and_vals()
+        self.dataset_acquisition.setpoints = tuple(self.data_setpoints)
+        self.dataset_acquisition.vals = Arrays(shape=tuple(self.data_shape))
 
     def pre_start_capture(self) -> None:
         """
@@ -426,22 +417,6 @@ class AlazarAcquisitionController(AcquisitionController):
         return channel_data
 
 
-class SampleAcquisition(ParameterWithSetpoints):
-    """
-    UNTESTED
-    TODO: reshape shape_info automatically and rerun setup_acquisition before running do_acquisition?
-    """
-    def __init__(self, name, *args, **kwargs):
-        super().__init__(name=name, *args, **kwargs)
-
-    def get_raw(self):
-        data = self.instrument.do_acquisition()
-        i_buffer = 0
-        i_record = 0
-        i_sample = 0
-        return data[:, i_buffer, i_record, i_sample]
-
-
 class TimeSetpoints(Parameter):
     """
     """
@@ -451,20 +426,6 @@ class TimeSetpoints(Parameter):
     def get_raw(self):
         acquisition_time = self.instrument.acquisition_time
         return np.linspace(0, acquisition_time, self.instrument.dataset_samples_per_record())
-
-
-class TraceAcquisition(ParameterWithSetpoints):
-    """
-    TODO: reshape shape_info automatically and rerun setup_acquisition before running do_acquisition?
-    """
-    def __init__(self, name, *args, **kwargs):
-        super().__init__(name=name, *args, **kwargs)
-
-    def get_raw(self):
-        data = self.instrument.do_acquisition()
-        i_buffer = 0
-        i_record = 0
-        return data[:, i_buffer, i_record, :]
 
 
 class IndexSetpoints(Parameter):
