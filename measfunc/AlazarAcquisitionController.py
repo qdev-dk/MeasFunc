@@ -3,7 +3,6 @@ import logging
 import warnings
 import numpy as np
 import ctypes
-from functools import partial
 from typing import Union, Tuple
 from qcodes import Parameter, ParameterWithSetpoints
 from qcodes.instrument_drivers.AlazarTech.ATS import AcquisitionController
@@ -73,18 +72,21 @@ class AlazarAcquisitionController(AcquisitionController):
         self.add_parameter('record_indices',
                            unit='a.u.',
                            label='record indices',
+                           max_value_callable=self._get_alazar().records_per_buffer.get,
                            parameter_class=IndexSetpoints,
                            vals=Arrays(shape=(self._get_alazar().records_per_buffer.get,)))
 
         self.add_parameter('buffer_indices',
                            unit='a.u.',
                            label='buffer indices',
+                           max_value_callable=self._get_alazar().buffers_per_acquisition.get,
                            parameter_class=IndexSetpoints,
                            vals=Arrays(shape=(self._get_alazar().buffers_per_acquisition.get,)))
 
         self.add_parameter('channel_indices',
                            unit='a.u.',
                            label='channel indices',
+                           max_value_callable=self.num_enabled_channels.get,
                            parameter_class=IndexSetpoints,
                            vals=Arrays(shape=(self.num_enabled_channels.get,)))
 
@@ -143,7 +145,6 @@ class AlazarAcquisitionController(AcquisitionController):
 
         self.data_setpoints = tuple(setpoints)
         self.data_shape = tuple(vals_shape)
-
 
     def raw_samples_to_voltages(self, raw_samples, bits_per_sample: int,
                                 voltage_range: float, unsigned: bool = True):
@@ -306,7 +307,6 @@ class AlazarAcquisitionController(AcquisitionController):
     def pre_acquire(self):
         pass
 
-
     def handle_buffer(self, data: np.ndarray, buffernum: int = 0):
         """
         """
@@ -408,21 +408,12 @@ class TimeSetpoints(Parameter):
 class IndexSetpoints(Parameter):
     """
     """
-    def __init__(self, *args, **kwargs):
+    def __init__(self, max_value_callable, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.max_index = None
-
-    def get_max_index(self):
-        if (self.name == 'channel_indices'):
-            max_index = self.instrument.num_enabled_channels()
-        elif (self.name == 'buffer_indices'):
-            max_index = self.instrument._get_alazar().buffers_per_acquisition()
-        elif (self.name == 'record_indices'):
-            max_index = self.instrument._get_alazar().records_per_buffer()
-        return max_index
+        self.max_value_callable = max_value_callable
 
     def get_raw(self):
-        max_index = self.get_max_index()
+        max_index = self.max_value_callable()
         return np.linspace(0, max_index - 1, max_index, dtype=int)
 
 
