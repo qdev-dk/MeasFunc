@@ -64,38 +64,23 @@ class AlazarAcquisitionController(AcquisitionController):
                            label='number of enabled channels',
                            get_cmd=self._get_num_enabled_channels)
 
-        self.add_parameter('dataset_samples_per_record',
-                           label='samples per record in final dataset',
-                           get_cmd=partial(self._get_dataset_dimension,
-                                           'samples_per_record'))
-
-        self.add_parameter('dataset_records_per_buffer',
-                           label='records per buffer in final dataset',
-                           get_cmd=partial(self._get_dataset_dimension,
-                                           'records_per_buffer'))
-
-        self.add_parameter('dataset_buffers_per_acquisition',
-                           label='buffers per acquisition in final dataset',
-                           get_cmd=partial(self._get_dataset_dimension,
-                                           'buffers_per_acquisition'))
-
         self.add_parameter('time_setpoints',
                            unit='s',
                            label='time setpoints',
                            parameter_class=TimeSetpoints,
-                           vals=Arrays(shape=(self.dataset_samples_per_record.get,)))
+                           vals=Arrays(shape=(self._get_alazar().samples_per_record.get,)))
 
         self.add_parameter('record_indices',
                            unit='a.u.',
                            label='record indices',
                            parameter_class=IndexSetpoints,
-                           vals=Arrays(shape=(self.dataset_records_per_buffer.get,)))
+                           vals=Arrays(shape=(self._get_alazar().records_per_buffer.get,)))
 
         self.add_parameter('buffer_indices',
                            unit='a.u.',
                            label='buffer indices',
                            parameter_class=IndexSetpoints,
-                           vals=Arrays(shape=(self.dataset_buffers_per_acquisition.get,)))
+                           vals=Arrays(shape=(self._get_alazar().buffers_per_acquisition.get,)))
 
         self.add_parameter('channel_indices',
                            unit='a.u.',
@@ -141,32 +126,24 @@ class AlazarAcquisitionController(AcquisitionController):
         if self.num_enabled_channels.get() > 1:
             setpoints.append(self.channel_indices)
             vals_shape.append(self.num_enabled_channels.get)
-        if not self.shape_info['average_buffers']:
+
+        nr_buffers = self._get_alazar().buffers_per_acquisition()
+        if (not self.shape_info['average_buffers']) and nr_buffers > 1:
             setpoints.append(self.buffer_indices)
-            vals_shape.append(self.dataset_buffers_per_acquisition.get)
-        if not self.shape_info['average_records']:
+            vals_shape.append(self._get_alazar().buffers_per_acquisition.get)
+
+        nr_records = self._get_alazar().records_per_buffer()
+        if (not self.shape_info['average_records']) and nr_records > 1:
             setpoints.append(self.record_indices)
-            vals_shape.append(self.dataset_records_per_buffer.get)
+            vals_shape.append(self._get_alazar().records_per_buffer.get)
+
         if not self.shape_info['integrate_samples']:
             setpoints.append(self.time_setpoints)
-            vals_shape.append(self.dataset_samples_per_record.get)
+            vals_shape.append(self._get_alazar().samples_per_record.get)
+
         self.data_setpoints = tuple(setpoints)
         self.data_shape = tuple(vals_shape)
 
-    def _get_dataset_dimension(self, axis: str):
-        """
-        Get size of dataset along axis after averaging is taken into account
-        """
-        valid_axes = ['samples_per_record', 'records_per_buffer', 'buffers_per_acquisition']
-        if (axis not in valid_axes):
-            raise ValueError("Invalid axis. Must be in ", valid_axes)
-        if (axis == 'buffers_per_acquisition'):
-            axis_size = (self._get_alazar().buffers_per_acquisition() if not self.shape_info['average_buffers'] else 1)
-        elif (axis == 'records_per_buffer'):
-            axis_size = (self._get_alazar().records_per_buffer() if not self.shape_info['average_records'] else 1)
-        elif (axis == 'samples_per_record'):
-            axis_size = (self._get_alazar().samples_per_record() if not self.shape_info['integrate_samples'] else 1)
-        return axis_size
 
     def raw_samples_to_voltages(self, raw_samples, bits_per_sample: int,
                                 voltage_range: float, unsigned: bool = True):
@@ -300,7 +277,7 @@ class AlazarAcquisitionController(AcquisitionController):
         self.alazar_config(**alazar_kwargs)
         self._update_data_setpoints_and_vals()
         self.dataset_acquisition.setpoints = tuple(self.data_setpoints)
-        self.dataset_acquisition.vals = Arrays(shape=tuple(self.data_shape))
+        self.dataset_acquisition.vals = Arrays(shape=self.data_shape)
 
     def pre_start_capture(self) -> None:
         """
@@ -425,7 +402,7 @@ class TimeSetpoints(Parameter):
 
     def get_raw(self):
         acquisition_time = self.instrument.acquisition_time
-        return np.linspace(0, acquisition_time, self.instrument.dataset_samples_per_record())
+        return np.linspace(0, acquisition_time, self.instrument._get_alazar().samples_per_record())
 
 
 class IndexSetpoints(Parameter):
@@ -439,9 +416,9 @@ class IndexSetpoints(Parameter):
         if (self.name == 'channel_indices'):
             max_index = self.instrument.num_enabled_channels()
         elif (self.name == 'buffer_indices'):
-            max_index = self.instrument.dataset_buffers_per_acquisition()
+            max_index = self.instrument._get_alazar().buffers_per_acquisition()
         elif (self.name == 'record_indices'):
-            max_index = self.instrument.dataset_records_per_buffer()
+            max_index = self.instrument._get_alazar().records_per_buffer()
         return max_index
 
     def get_raw(self):
