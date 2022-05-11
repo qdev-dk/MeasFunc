@@ -3,7 +3,7 @@ import logging
 import warnings
 import numpy as np
 import ctypes
-from typing import Union, Tuple
+from typing import Union, Tuple, Iterable
 from qcodes import Parameter, ParameterWithSetpoints
 from qcodes.instrument_drivers.AlazarTech.ATS import AcquisitionController
 from qcodes.utils.validators import Arrays
@@ -411,10 +411,20 @@ class IndexSetpoints(Parameter):
     def __init__(self, max_value_callable, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.max_value_callable = max_value_callable
+        self.set_sweep_array_to_index_array()
+
+    def set_raw(self, value: Iterable[Union[float, int]]) -> None:
+        self.sweep_array = value
 
     def get_raw(self):
         max_index = self.max_value_callable()
-        return np.linspace(0, max_index - 1, max_index, dtype=int)
+        if len(self.sweep_array) != max_index:
+            self.set_sweep_array_to_index_array()
+        return self.sweep_array
+
+    def set_sweep_array_to_index_array(self):
+        max_index = self.max_value_callable()
+        self.sweep_array = np.linspace(0, max_index - 1, max_index, dtype=int)
 
 
 class DatasetAcquisition(ParameterWithSetpoints):
