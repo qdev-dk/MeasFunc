@@ -354,11 +354,11 @@ class AlazarAcquisitionController(AcquisitionController):
     def reshape_buffer(self, number_of_buffers,
                        records_per_buffer, samples_per_record):
         # bit_per_sample is not the right atribute to use in the if statment
-        if (self._get_alazar().get_idn()['bits_per_sample'] == 14):
+        if (self.board_info['bits_per_sample'] == 14):
             return self.buffer.reshape(number_of_buffers,
                                        self.num_enabled_channels(),
                                        records_per_buffer, samples_per_record)
-        elif (self._get_alazar().get_idn()['bits_per_sample'] == 12):
+        elif (self.board_info['bits_per_sample'] == 12):
             return np.moveaxis(self.buffer.reshape(number_of_buffers,
                                                    records_per_buffer,
                                                    samples_per_record,
@@ -389,7 +389,7 @@ class AlazarAcquisitionController(AcquisitionController):
 
         (num_buffers_per_acquisition, num_records_per_buffer, num_samples_per_record) = channel_data.shape
         channel_data = self.raw_samples_to_voltages(raw_samples=channel_data,
-                                                    bits_per_sample=self._get_alazar().get_idn()['bits_per_sample'],
+                                                    bits_per_sample=self.board_info['bits_per_sample'],
                                                     voltage_range=getattr(self._get_alazar(), 'channel_range'+'{:d}'.format(channel_index+1))())
         return channel_data
 
