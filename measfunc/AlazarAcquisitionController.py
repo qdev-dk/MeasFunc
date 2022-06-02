@@ -5,7 +5,7 @@ import warnings
 import numpy as np
 import ctypes
 from typing import Union, Tuple, Iterable
-from qcodes import Parameter, ParameterWithSetpoints
+from qcodes import Parameter, ParameterWithSetpoints, ManualParameter
 from qcodes.instrument_drivers.AlazarTech.ATS import AcquisitionController
 from qcodes.utils.validators import Arrays
 from string import ascii_uppercase
@@ -64,12 +64,21 @@ class AlazarAcquisitionController(AcquisitionController):
         self.add_parameter('num_enabled_channels',
                            label='number of enabled channels',
                            get_cmd=self._get_num_enabled_channels)
+        
+        self.add_parameter('samples_to_exclude_start',
+                           parameter_class=ManualParameter,
+                           initial_value=None
+                           )
+        self.add_parameter('samples_to_exclude_end',
+                           parameter_class=ManualParameter,
+                           initial_value=None
+                           )
 
         self.add_parameter('time_setpoints',
                            unit='s',
                            label='time setpoints',
                            parameter_class=TimeSetpoints,
-                           vals=Arrays(shape=(self._get_alazar().samples_per_record.get,)))
+                           vals=Arrays(shape=(self._reduced_samples_per_record,)))
 
         self.add_parameter('record_indices',
                            unit='a.u.',
@@ -143,10 +152,13 @@ class AlazarAcquisitionController(AcquisitionController):
 
         if not self.shape_info['integrate_samples']:
             setpoints.append(self.time_setpoints)
-            vals_shape.append(self._get_alazar().samples_per_record.get)
+            vals_shape.append(self._reduced_samples_per_record)
 
         self.data_setpoints = tuple(setpoints)
         self.data_shape = tuple(vals_shape)
+
+    def _reduced_samples_per_record(self):
+        return self._get_alazar().samples_per_record.get() - zero_if_none(self.samples_to_exclude_start()) - zero_if_none(self.samples_to_exclude_end())
 
     def raw_samples_to_voltages(self, raw_samples, bits_per_sample: int,
                                 voltage_range: float, unsigned: bool = True):
@@ -371,14 +383,18 @@ class AlazarAcquisitionController(AcquisitionController):
                        records_per_buffer, samples_per_record):
         # bit_per_sample is not the right atribute to use in the if statment
         if (self.board_info['bits_per_sample'] == 14):
-            return self.buffer.reshape(number_of_buffers,
+            data = self.buffer.reshape(number_of_buffers,
                                        self.num_enabled_channels(),
                                        records_per_buffer, samples_per_record)
         elif (self.board_info['bits_per_sample'] == 12):
-            return np.moveaxis(self.buffer.reshape(number_of_buffers,
+            data = np.moveaxis(self.buffer.reshape(number_of_buffers,
                                                    records_per_buffer,
                                                    samples_per_record,
                                                    self.num_enabled_channels()), -1, 1)
+        samples_to_keep = slice(self.samples_to_exclude_start(),
+                                makenegative(self.samples_to_exclude_end()),
+                                None)
+        return data[:, :, :, samples_to_keep]
 
     def postprocess_channel_data(self, channel_data: np.ndarray, channel_index: int):
         """
@@ -386,10 +402,11 @@ class AlazarAcquisitionController(AcquisitionController):
         Convert integers to voltage values
         """
         (num_buffers_per_acquisition, num_records_per_buffer, num_samples_per_record) = channel_data.shape
+        #num_samples_per_record += zero_if_none(self.samples_to_exclude_start())+zero_if_none(self.samples_to_exclude_end())
         if ((num_buffers_per_acquisition != (self.acquisition_config['buffers_per_acquisition'] if not self.shape_info['average_buffers'] else 1))
                 or (num_records_per_buffer != self.acquisition_config['records_per_buffer'])
-                or (num_samples_per_record != self.acquisition_config['samples_per_record'])):
-            raise ValueError("Data has an invalid shape. Check acquisition_config")
+                or (num_samples_per_record != self.acquisition_config['samples_per_record']-zero_if_none(self.samples_to_exclude_start())-zero_if_none(self.samples_to_exclude_end()))):
+            raise ValueError(f"Data has an invalid shape ({num_buffers_per_acquisition},{num_records_per_buffer},{num_samples_per_record}). Check acquisition_config")
 
         if self.shape_info['average_records']:
             channel_data = np.uint16(np.mean(channel_data, axis=1, keepdims=True))
@@ -418,7 +435,7 @@ class TimeSetpoints(Parameter):
 
     def get_raw(self):
         acquisition_time = self.instrument.acquisition_time
-        return np.linspace(0, acquisition_time, self.instrument._get_alazar().samples_per_record())
+        return np.linspace(0, acquisition_time, self.instrument._reduced_samples_per_record())
 
 
 class IndexSetpoints(Parameter):
@@ -453,3 +470,10 @@ class DatasetAcquisition(ParameterWithSetpoints):
     def get_raw(self):
         data = self.instrument.do_acquisition()
         return np.squeeze(data)
+
+
+def zero_if_none(x):
+    return 0 if x is None else x
+
+def makenegative(x):
+    return x if x is None else -x
