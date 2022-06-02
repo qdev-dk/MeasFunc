@@ -1,3 +1,4 @@
+from distutils.log import error
 import inspect
 import logging
 import warnings
@@ -190,10 +191,14 @@ class AlazarAcquisitionController(AcquisitionController):
         valid_samples_per_record = int(max(valid_samples_per_record, self._min_num_samples))
         return valid_samples_per_record
 
-    def find_and_set_compatible_acquisition_time_and_samples_per_record(self, sample_rate: float, samples_per_record: int):
+    def find_and_set_compatible_acquisition_time_and_samples_per_record(self, sample_rate: float, samples_per_record: int) -> None:
         """
         """
-        pass
+        valid_samples_per_record = self.find_closest_samples_per_record(samples_per_record)
+        self.acquisition_config['samples_per_record'] = valid_samples_per_record
+        self.find_and_set_closest_sample_rate(sample_rate)
+        print('I was here')
+        self.acquisition_time = (1.0/self._get_alazar().sample_rate())*self._get_alazar().samples_per_record()
 
     def find_and_set_compatible_sample_rate_and_samples_per_record(self, acquisition_time: float, samples_per_record: int):
         """
@@ -243,10 +248,11 @@ class AlazarAcquisitionController(AcquisitionController):
                 if not (is_parameter or is_channel_parameter):
                     warnings.warn("\nTrying to set channel parameter "+alazar_parameter+'\n'+"which doesn't exist. Not setting!")
 
-    def setup_acquisition(self, acquisition_time: float,
-                          samples_per_record: int,
-                          acquisition_kwargs: dict,
-                          alazar_kwargs: dict):
+    def setup_acquisition(self, acquisition_time: float = None,
+                          samples_per_record: int = None,
+                          sample_rate: int = None,
+                          acquisition_kwargs: dict = {},
+                          alazar_kwargs: dict = {}):
         """
         All-in-one setup function. To run any of the acquisition methods, run this or equivalent setup before.
 
@@ -262,9 +268,18 @@ class AlazarAcquisitionController(AcquisitionController):
 
         self.update_dictionary(self.acquisition_config,
                                kwargs=acquisition_kwargs)
+        if acquisition_time and samples_per_record and sample_rate:
+            warnings.warn('Only two of the arguments acquisition_time, samples_per_record '
+                          'and sample_rate, can be set at the same time, setting sample_rate = None')
+        if acquisition_time and samples_per_record:                 
+            self.find_and_set_compatible_sample_rate_and_samples_per_record(acquisition_time,
+                                                                            samples_per_record)
+        if samples_per_record and sample_rate:
+            self.find_and_set_compatible_acquisition_time_and_samples_per_record(sample_rate, samples_per_record)
 
-        self.find_and_set_compatible_sample_rate_and_samples_per_record(acquisition_time,
-                                                                        samples_per_record)
+        if bool(samples_per_record)+bool(sample_rate)+bool(acquisition_time) != 2:
+            raise ValueError('Needs two and only two of the arguments '
+                             'acquisition_time, samples_per_record and sample_rate')
 
         for alazar_parameter, set_value in self.acquisition_config.items():
             if hasattr(self._get_alazar(), alazar_parameter) and (set_value is not None):
