@@ -8,6 +8,7 @@ from typing import Union, Tuple, Iterable
 from qcodes import Parameter, ParameterWithSetpoints
 from qcodes.instrument_drivers.AlazarTech.ATS import AcquisitionController
 from qcodes.utils.validators import Arrays
+from string import ascii_uppercase
 
 logger = logging.getLogger(__name__)
 
@@ -363,7 +364,7 @@ class AlazarAcquisitionController(AcquisitionController):
         for i_ch, ch in enumerate(self._get_alazar().channel_selection()):
             channel_data[ch] = reshaped_buf[:, i_ch, :, :]
             channel_data[ch] = self.postprocess_channel_data(channel_data[ch],
-                                                             channel_index=i_ch)
+                                                             channel_index=ascii_uppercase.index(ch))
         return np.array([channel_data[ch] for ch in channel_data.keys()])
 
     def reshape_buffer(self, number_of_buffers,
