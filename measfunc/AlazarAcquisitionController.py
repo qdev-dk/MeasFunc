@@ -1,10 +1,9 @@
-from distutils.log import error
 import inspect
 import logging
 import warnings
 import numpy as np
 import ctypes
-from typing import Union, Tuple, Iterable
+from typing import Union, Tuple, Iterable, Optional
 from qcodes import Parameter, ParameterWithSetpoints, ManualParameter
 from qcodes.instrument_drivers.AlazarTech.ATS import AcquisitionController
 from qcodes.utils.validators import Arrays
@@ -64,13 +63,14 @@ class AlazarAcquisitionController(AcquisitionController):
         self.add_parameter('num_enabled_channels',
                            label='number of enabled channels',
                            get_cmd=self._get_num_enabled_channels)
-        
+
+
         self.add_parameter('samples_to_exclude_start',
-                           parameter_class=ManualParameter,
+                           parameter_class=ExcludeIndex,
                            initial_value=None
                            )
         self.add_parameter('samples_to_exclude_end',
-                           parameter_class=ManualParameter,
+                           parameter_class=ExcludeIndex,
                            initial_value=None
                            )
 
@@ -284,7 +284,7 @@ class AlazarAcquisitionController(AcquisitionController):
         if acquisition_time and samples_per_record and sample_rate:
             warnings.warn('Only two of the arguments acquisition_time, samples_per_record '
                           'and sample_rate, can be set at the same time, setting sample_rate = None')
-        if acquisition_time and samples_per_record:                 
+        if acquisition_time and samples_per_record:
             self.find_and_set_compatible_sample_rate_and_samples_per_record(acquisition_time,
                                                                             samples_per_record)
         if samples_per_record and sample_rate:
@@ -402,7 +402,6 @@ class AlazarAcquisitionController(AcquisitionController):
         Convert integers to voltage values
         """
         (num_buffers_per_acquisition, num_records_per_buffer, num_samples_per_record) = channel_data.shape
-        #num_samples_per_record += zero_if_none(self.samples_to_exclude_start())+zero_if_none(self.samples_to_exclude_end())
         if ((num_buffers_per_acquisition != (self.acquisition_config['buffers_per_acquisition'] if not self.shape_info['average_buffers'] else 1))
                 or (num_records_per_buffer != self.acquisition_config['records_per_buffer'])
                 or (num_samples_per_record != self.acquisition_config['samples_per_record']-zero_if_none(self.samples_to_exclude_start())-zero_if_none(self.samples_to_exclude_end()))):
@@ -472,8 +471,24 @@ class DatasetAcquisition(ParameterWithSetpoints):
         return np.squeeze(data)
 
 
+class ExcludeIndex(ManualParameter):
+    def __init__(self, name, *args, **kwargs):
+        super().__init__(name=name, *args, **kwargs)
+        self.value = None
+
+    def set_raw(self, x: Optional[int] = None):
+        if x == 0:
+            self.value = None
+        else:
+            self.value = x
+
+    def get_raw(self):
+        return self.value
+
+
 def zero_if_none(x):
     return 0 if x is None else x
+
 
 def makenegative(x):
     return x if x is None else -x
