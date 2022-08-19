@@ -11,6 +11,7 @@ import matplotlib.cm as cmx
 import copy
 from operator import itemgetter
 from typing import Union
+import time
 
 plt.rc('font', size=12)
 plt.rc('axes', linewidth=1.5)
@@ -26,9 +27,6 @@ class Leakage_matrix():
     def __init__(self, qdac, sample_name,
                  channels_to_measure: Union[str, list] = 'all',
                  gate_names: Union[dict, type(None)] = None):
-
-        
-        
 
         self.sample_name = sample_name
         self.qdac = qdac
@@ -50,6 +48,7 @@ class Leakage_matrix():
         for channel in self.channels_to_measure:  # set nplc
             channel.measurement_nplc(nplc)
 
+        time.sleep(1/50*nplc)
         voltages_start = np.array([channel.dc_constant_V() for channel in self.channels_to_measure])
         current_start = np.array([channel.read_current_A()[0] for channel in self.channels_to_measure])
         voltage_indexes = {channel.name: index for index, channel in enumerate(self.channels_to_measure)}
@@ -65,6 +64,8 @@ class Leakage_matrix():
             #  set to start + diff
             voltage_channel.dc_constant_V(voltages_start[voltage_indexes[voltage_channel.name]] + voltage_difference)
             currents = []
+
+            time.sleep(1/50*nplc)
             for curr_channel in self.channels_to_measure:
                 currents.append(curr_channel.read_current_A()[0])
 
@@ -75,7 +76,7 @@ class Leakage_matrix():
             #  return to start
             voltage_channel.dc_constant_V(voltages_start[voltage_indexes[voltage_channel.name]])
 
-        #just for testing
+        # just for testing
         if voltage_difference == 0:
             conductance = array_of_diff
         else:
@@ -86,7 +87,7 @@ class Leakage_matrix():
     def _save_leakage_matrix(self, folder, voltages_start, current_start, leakage_matrix, voltage_indexes, array_of_currents, voltage_difference):
         if not os.path.exists(folder):
             os.mkdir(folder)
-        
+
         np.save(folder+'/starting_currents.npy', current_start)
         np.save(folder+'/starting_voltages.npy', voltages_start)
         np.save(folder+'/leakage_matrix.npy', leakage_matrix)
@@ -109,16 +110,16 @@ class Leakage_matrix():
         leakage_matrix = np.load(folder+'/leakage_matrix.npy')
         array_of_currents = np.load(folder+'/current_array.npy')
         voltage_difference = np.load(folder+'/voltage_difference.npy')
-        
+
         with open(folder+'/voltage_index.json', 'w') as file:
             voltage_indexes = json.load(file)
         gate_names = None
         if os.path.exists(folder + '/gate_names.json'):
             with open(folder + '/gate_names.json', 'w') as file:
                 gate_names = json.load(file)
-        
+
         return voltages_start, current_start, leakage_matrix, voltage_indexes, array_of_currents, voltage_difference, gate_names
-        
+
     def _plot_leakage_matrix(self, leakage_matrix, gate_names: Union[dict, type(None)] = None,
                              xvals_=[0.2, 0],
                              yvals_=[0, 0.2]):
@@ -147,7 +148,7 @@ class Leakage_matrix():
         else:
             if leakage_matrix.shape[0]!=len(gate_names):
                 raise Exception(f'{len(gate_names)} provided names does not match size of leakage matrix {leakage_matrix.shape}')
-                
+
             fixed_gate_names = {}
             for key, value in gate_names.items():
                 fixed_gate_names[f'{int(key):02d}'] = value
@@ -161,7 +162,7 @@ class Leakage_matrix():
         xticks = gate_names_plot
         xticks = [xticks[i].replace('_', ' ') for i in range(len(xticks))]
         yticks = copy.deepcopy(xticks)
-        #yticks.reverse()
+        # yticks.reverse()
         plot_axis.set_xticklabels(xticks, rotation='-90', fontsize=16)
         plot_axis.set_yticklabels(yticks, rotation='horizontal', fontsize=16)
         # Adjust tick position
@@ -173,10 +174,10 @@ class Leakage_matrix():
             label.set_transform(label.get_transform() + xoffset)
         for label in plot_axis.yaxis.get_majorticklabels():
             label.set_transform(label.get_transform() + yoffset)
-            
+
         # Plot colorbar
         cb0 = fig.colorbar(im0, cax=color_axis, orientation='horizontal')
-        color_axis.set_title(r'($\, | \mathrm{d} I / \mathrm{d} V \, | \,$) (pA$\,/\,$V)', fontsize=26)
+        color_axis.set_title(r'($\, | \mathrm{d} I / \mathrm{d} V \, | \,$) (A$\,/\,$V)', fontsize=26)
         for t in cb0.ax.get_xticklabels():
             t.set_fontsize(18)
 
@@ -186,8 +187,3 @@ class Leakage_matrix():
         plt.tight_layout()
         # plt.savefig(os.path.join(data_path, "2022-05-15_leakage-tests", "Plots", "leakage_matrix_at_25mK.pdf"), bbox_inches="tight")
         # plt.savefig(os.path.join(data_path, "2022-05-15_leakage-tests", "Plots", "leakage_matrix_at_25mK.png"), dpi=400, bbox_inches="tight")
-
-
-    def _get_qdacII_current(self, channel: int):
-        return getattr(self.qdac, f'ch{channel:02d}').read_current_A()[0]
-        
