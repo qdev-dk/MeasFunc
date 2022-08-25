@@ -80,7 +80,11 @@ class Leakage_matrix():
             raise Exception(f'calculate: {calculate} is not accepted, try "resistance", "conductance" or "both"')
 
         if save_folder!=None:
-            self._save_leakage_matrix(save_folder)
+            if not os.path.exists(save_folder):
+                os.mkdir(save_folder)
+            now_folder = save_folder + '/' + datetime.now().strftime('%Y%m%d_%H_%M')
+            print(f'saved to {now_folder}')
+            self._save_leakage_matrix(now_folder)
 
         if plot:
             if calculate == 'resistance':
@@ -89,7 +93,7 @@ class Leakage_matrix():
                                             xvals_=[0.2, 0],
                                             yvals_=[0, 0.2],
                                             values='resistance',
-                                            save_folder=save_folder)
+                                            save_folder=now_folder)
                 return self.resistance_matrix, None, base_data
             elif calculate == 'conductance':
                 self._plot_leakage_matrix(self.conductance_matrix,
@@ -97,7 +101,7 @@ class Leakage_matrix():
                                             xvals_=[0.2, 0],
                                             yvals_=[0, 0.2],
                                             values='conductance',
-                                            save_folder=save_folder)
+                                            save_folder=now_folder)
                 return None, self.conductance_matrix, base_data
             elif calculate == 'both':
                 self._plot_leakage_matrix(self.resistance_matrix,
@@ -105,14 +109,14 @@ class Leakage_matrix():
                                             xvals_=[0.2, 0],
                                             yvals_=[0, 0.2],
                                             values='resistance',
-                                            save_folder=save_folder)
+                                            save_folder=now_folder)
 
                 self._plot_leakage_matrix(self.conductance_matrix,
                                             gate_names=self.gate_names,
                                             xvals_=[0.2, 0],
                                             yvals_=[0, 0.2],
                                             values='conductance',
-                                            save_folder=save_folder)
+                                            save_folder=now_folder)
                 return self.resistance_matrix, self.conductance_matrix, base_data
 
             
@@ -161,25 +165,23 @@ class Leakage_matrix():
 
 
     def _save_leakage_matrix(self, folder):
-        if not os.path.exists(folder):
-            os.mkdir(folder)
-        now_folder = folder + '/' + datetime.now().strftime('%Y%m%d_%H_%M')
-        os.mkdir(now_folder)
+        
+        os.mkdir(folder)
 
-        np.save(now_folder+'/starting_currents.npy', self.current_start)
-        np.save(now_folder+'/starting_voltages.npy', self.voltages_start)
+        np.save(folder+'/starting_currents.npy', self.current_start)
+        np.save(folder+'/starting_voltages.npy', self.voltages_start)
         if hasattr(self, 'resistance_matrix'):
-            np.save(now_folder+'/resistance_matrix.npy', self.resistance_matrix)
+            np.save(folder+'/resistance_matrix.npy', self.resistance_matrix)
         if hasattr(self, 'conductance_matrix'):
-            np.save(now_folder+'/conductance_matrix.npy', self.conductance_matrix)
-        np.save(now_folder+'/current_array.npy', self.array_of_currents)
-        np.save(now_folder+'/voltage_difference.npy', self.voltage_difference)
+            np.save(folder+'/conductance_matrix.npy', self.conductance_matrix)
+        np.save(folder+'/current_array.npy', self.array_of_currents)
+        np.save(folder+'/voltage_difference.npy', self.voltage_difference)
 
         if self.gate_names is not None:
-            with open(now_folder+'/gate_names.json', 'w') as file:
+            with open(folder+'/gate_names.json', 'w') as file:
                 file.write(json.dumps(self.gate_names))
 
-        with open(now_folder+'/voltage_index.json', 'w') as file:
+        with open(folder+'/voltage_index.json', 'w') as file:
             file.write(json.dumps(self.voltage_indexes))
 
     def _load_leakage_matrix(self, folder):
@@ -222,7 +224,7 @@ class Leakage_matrix():
 
         if values == 'resistance':
             cmin = 0
-            cmax = min(5e4, np.max(lm))
+            cmax = min(np.min(lm)+5e4, np.max(lm))
 
         elif values == 'conductance':
             lm /= (1/25812.807)  # get in units of G0
@@ -282,6 +284,5 @@ class Leakage_matrix():
 
         plt.tight_layout()
         if save_folder is not None:
-            naming = f'/{values}_' + datetime.now().strftime('%Y%m%d_%H_%M')
-            plt.savefig(save_folder + naming + '.pdf', bbox_inches="tight")
-            plt.savefig(save_folder + naming + '.png', dpi=400, bbox_inches="tight")
+            plt.savefig(save_folder + f'/{values}.pdf', bbox_inches="tight")
+            plt.savefig(save_folder + f'/{values}.png', dpi=400, bbox_inches="tight")
