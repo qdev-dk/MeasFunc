@@ -52,99 +52,105 @@ class Leakage_matrix():
                                mode='differential',
                                calculate='both',
                                nplc=1,
-                               plot=True):
+                               plot=True,
+                               save_folder=None):
 
-        voltages_start, current_start, array_of_currents = self._measure_currents(voltage_difference, mode, nplc)
-        base_data = (voltages_start, current_start, array_of_currents)
-
+        self.voltage_difference = voltage_difference
+        self._measure_currents(mode, nplc)
+        base_data = (self.voltages_start, self.current_start, self.array_of_currents)
+        
         if mode == 'absolute':
             if calculate == 'resistance':
-                return voltages_start/current_start
+                return self.voltages_start/self.current_start
             elif calculate == 'conductance':
-                return current_start/voltages_start
+                return self.current_start/self.voltages_start
             elif calculate == 'both':
-                return current_start/voltages_start, voltages_start/current_start
+                return self.current_start/self.voltages_start, self.voltages_start/self.current_start
             else:
                 raise Exception(f'calculate: {calculate} is not accepted, try "resistance", "conductance" or "both"')
 
         if calculate == 'resistance':
-            resistance_matrix = self._calculate_leakage_matrix(array_of_currents, current_start, voltage_difference, mode='resistance')
+            self.resistance_matrix = self._calculate_leakage_matrix(mode='resistance')
         elif calculate == 'conductance':
-            conductance_matrix = self._calculate_leakage_matrix(array_of_currents, current_start, voltage_difference, mode='conductance')
+            self.conductance_matrix = self._calculate_leakage_matrix(mode='conductance')
         elif calculate == 'both':
-            resistance_matrix = self._calculate_leakage_matrix(array_of_currents, current_start, voltage_difference, mode='resistance')
-            conductance_matrix = self._calculate_leakage_matrix(array_of_currents, current_start, voltage_difference, mode='conductance')
+            self.resistance_matrix = self._calculate_leakage_matrix(mode='resistance')
+            self.conductance_matrix = self._calculate_leakage_matrix(mode='conductance')
         else:
             raise Exception(f'calculate: {calculate} is not accepted, try "resistance", "conductance" or "both"')
 
+        if save_folder!=None:
+            self._save_leakage_matrix(save_folder)
+
         if plot:
             if calculate == 'resistance':
-                self._plot_leakage_matrix(resistance_matrix,
+                self._plot_leakage_matrix(self.resistance_matrix,
                                             gate_names=self.gate_names,
                                             xvals_=[0.2, 0],
                                             yvals_=[0, 0.2],
-                                            values='resistance')
-                return resistance_matrix, base_data
+                                            values='resistance',
+                                            save_folder=save_folder)
+                return self.resistance_matrix, None, base_data
             elif calculate == 'conductance':
-                self._plot_leakage_matrix(conductance_matrix,
+                self._plot_leakage_matrix(self.conductance_matrix,
                                             gate_names=self.gate_names,
                                             xvals_=[0.2, 0],
                                             yvals_=[0, 0.2],
-                                            values='conductance')
-                return conductance_matrix, base_data
+                                            values='conductance',
+                                            save_folder=save_folder)
+                return None, self.conductance_matrix, base_data
             elif calculate == 'both':
-                self._plot_leakage_matrix(resistance_matrix,
+                self._plot_leakage_matrix(self.resistance_matrix,
                                             gate_names=self.gate_names,
                                             xvals_=[0.2, 0],
                                             yvals_=[0, 0.2],
-                                            values='resistance')
+                                            values='resistance',
+                                            save_folder=save_folder)
 
-                self._plot_leakage_matrix(conductance_matrix,
+                self._plot_leakage_matrix(self.conductance_matrix,
                                             gate_names=self.gate_names,
                                             xvals_=[0.2, 0],
                                             yvals_=[0, 0.2],
-                                            values='conductance')
-                return resistance_matrix, conductance_matrix, base_data
+                                            values='conductance',
+                                            save_folder=save_folder)
+                return self.resistance_matrix, self.conductance_matrix, base_data
 
+            
 
-    def _measure_currents(self, voltage_difference, mode='differential', nplc=1):
+    def _measure_currents(self, mode='differential', nplc=1):
         for channel in self.channels_to_measure:  # set nplc
             channel.measurement_nplc(nplc)
 
         time.sleep(1/50*nplc)
-        voltages_start = np.array([channel.dc_constant_V() for channel in self.channels_to_measure])
-        current_start = np.array([channel.read_current_A()[0] for channel in self.channels_to_measure])
+        self.voltages_start = np.array([channel.dc_constant_V() for channel in self.channels_to_measure])
+        self.current_start = np.array([channel.read_current_A()[0] for channel in self.channels_to_measure])
 
         if mode == 'absolute':
-            return voltages_start, current_start, None        
+            return self.voltages_start, self.current_start, None    
 
-        array_of_currents = np.zeros(shape=(len(self.channels_to_measure), len(self.channels_to_measure)))
+        self.array_of_currents = np.zeros(shape=(len(self.channels_to_measure), len(self.channels_to_measure)))
         i = 0
         for voltage_channel in self.channels_to_measure:
             #  set to start + diff
-            voltage_channel.dc_constant_V(voltages_start[self.voltage_indexes[voltage_channel.name]] + voltage_difference)
+            voltage_channel.dc_constant_V(self.voltages_start[self.voltage_indexes[voltage_channel.name]] + self.voltage_difference)
             currents = []
 
             time.sleep(1/50*nplc)  #wait for NPLC
             for curr_channel in self.channels_to_measure:
                 currents.append(curr_channel.read_current_A()[0])
 
-            array_of_currents[i, :] = np.array(currents)
+            self.array_of_currents[i, :] = np.array(currents)
             i += 1
 
             #  return to start
-            voltage_channel.dc_constant_V(voltages_start[self.voltage_indexes[voltage_channel.name]])
+            voltage_channel.dc_constant_V(self.voltages_start[self.voltage_indexes[voltage_channel.name]])
 
-        # leakage_matrix = self._calculate_leakage_matrix(array_of_currents, current_start, voltage_difference, mode=calculate)
-
-        return voltages_start, current_start, array_of_currents
-
-    def _calculate_leakage_matrix(self, array_of_currents, current_start, voltage_difference, mode='resistance'):
+    def _calculate_leakage_matrix(self, mode='resistance'):
         if mode == 'resistance':
-            results_array = np.abs(voltage_difference)/np.abs(array_of_currents-current_start)
+            results_array = np.abs(self.voltage_difference)/np.abs(self.array_of_currents-self.current_start)
 
         elif mode == 'conductance':
-            results_array = np.abs(array_of_currents-current_start)/np.abs(voltage_difference)
+            results_array = np.abs(self.array_of_currents-self.current_start)/np.abs(self.voltage_difference)
         else:
             raise Exception(f'mode: {mode} not recognised, try "resistance" or "conductance"')
 
@@ -154,22 +160,27 @@ class Leakage_matrix():
         #     results_array[i, :] = abs((voltages_start[self.voltage_indexes[voltage_channel.name]] + voltage_difference))/np.abs(array_of_currents[i,:])
 
 
-    def _save_leakage_matrix(self, folder, voltages_start, current_start, leakage_matrix, voltage_indexes, array_of_currents, voltage_difference):
+    def _save_leakage_matrix(self, folder):
         if not os.path.exists(folder):
             os.mkdir(folder)
+        now_folder = folder + '/' + datetime.now().strftime('%Y%m%d_%H_%M')
+        os.mkdir(now_folder)
 
-        np.save(folder+'/starting_currents.npy', current_start)
-        np.save(folder+'/starting_voltages.npy', voltages_start)
-        np.save(folder+'/leakage_matrix.npy', leakage_matrix)
-        np.save(folder+'/current_array.npy', array_of_currents)
-        np.save(folder+'/voltage_difference.npy', voltage_difference)
+        np.save(now_folder+'/starting_currents.npy', self.current_start)
+        np.save(now_folder+'/starting_voltages.npy', self.voltages_start)
+        if hasattr(self, 'resistance_matrix'):
+            np.save(now_folder+'/resistance_matrix.npy', self.resistance_matrix)
+        if hasattr(self, 'conductance_matrix'):
+            np.save(now_folder+'/conductance_matrix.npy', self.conductance_matrix)
+        np.save(now_folder+'/current_array.npy', self.array_of_currents)
+        np.save(now_folder+'/voltage_difference.npy', self.voltage_difference)
 
         if self.gate_names is not None:
-            with open(folder+'/gate_names.json', 'w') as file:
+            with open(now_folder+'/gate_names.json', 'w') as file:
                 file.write(json.dumps(self.gate_names))
 
-        with open(folder+'/voltage_index.json', 'w') as file:
-            file.write(json.dumps(voltage_indexes))
+        with open(now_folder+'/voltage_index.json', 'w') as file:
+            file.write(json.dumps(self.voltage_indexes))
 
     def _load_leakage_matrix(self, folder):
         if not os.path.exists(folder):
@@ -194,7 +205,8 @@ class Leakage_matrix():
                              gate_names: Union[dict, type(None)] = None,
                              xvals_=[0.2, 0],
                              yvals_=[0, 0.2],
-                             values='resistance'):
+                             values='resistance',
+                             save_folder=None):
 
         fig = plt.figure(figsize=(11.5, 12.0))
         grids = gs.GridSpec(2, 8, height_ratios=[0.03, 1.0])
@@ -269,5 +281,7 @@ class Leakage_matrix():
         plt.text(0.92, 0.02, "Current", rotation=-90, fontsize=26, transform=plt.gcf().transFigure)
 
         plt.tight_layout()
-        # plt.savefig(os.path.join(data_path, "2022-05-15_leakage-tests", "Plots", "leakage_matrix_at_25mK.pdf"), bbox_inches="tight")
-        # plt.savefig(os.path.join(data_path, "2022-05-15_leakage-tests", "Plots", "leakage_matrix_at_25mK.png"), dpi=400, bbox_inches="tight")
+        if save_folder is not None:
+            naming = f'/{values}_' + datetime.now().strftime('%Y%m%d_%H_%M')
+            plt.savefig(save_folder + naming + '.pdf', bbox_inches="tight")
+            plt.savefig(save_folder + naming + '.png', dpi=400, bbox_inches="tight")
