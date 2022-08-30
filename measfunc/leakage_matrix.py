@@ -46,7 +46,7 @@ class Leakage_matrix():
             channel.measurement_range('low')
 
         self.voltage_indexes = {channel.name: index for index, channel in enumerate(self.channels_to_measure)}
-    
+
     def measure_leakage_matrix(self,
                                voltage_difference,
                                mode='differential',
@@ -57,17 +57,6 @@ class Leakage_matrix():
 
         self.voltage_difference = voltage_difference
         self._measure_currents(mode, nplc)
-        base_data = (self.voltages_start, self.current_start, self.array_of_currents)
-        
-        if mode == 'absolute':
-            if calculate == 'resistance':
-                return self.voltages_start/self.current_start
-            elif calculate == 'conductance':
-                return self.current_start/self.voltages_start
-            elif calculate == 'both':
-                return self.current_start/self.voltages_start, self.voltages_start/self.current_start
-            else:
-                raise Exception(f'calculate: {calculate} is not accepted, try "resistance", "conductance" or "both"')
 
         if calculate == 'resistance':
             self.resistance_matrix = self._calculate_leakage_matrix(mode='resistance')
@@ -79,7 +68,7 @@ class Leakage_matrix():
         else:
             raise Exception(f'calculate: {calculate} is not accepted, try "resistance", "conductance" or "both"')
 
-        if save_folder!=None:
+        if save_folder is not None:
             if not os.path.exists(save_folder):
                 os.mkdir(save_folder)
             now_folder = save_folder + '/' + datetime.now().strftime('%Y%m%d_%H_%M')
@@ -88,38 +77,25 @@ class Leakage_matrix():
 
         if plot:
             if calculate == 'resistance':
-                self._plot_leakage_matrix(self.resistance_matrix,
-                                            gate_names=self.gate_names,
-                                            xvals_=[0.2, 0],
-                                            yvals_=[0, 0.2],
-                                            values='resistance',
-                                            save_folder=now_folder)
-                return self.resistance_matrix, None, base_data
+                self.plot_leakage_matrix(self.resistance_matrix,
+                                         gate_names=self.gate_names,
+                                         values='resistance',
+                                         save_folder=now_folder)
             elif calculate == 'conductance':
-                self._plot_leakage_matrix(self.conductance_matrix,
-                                            gate_names=self.gate_names,
-                                            xvals_=[0.2, 0],
-                                            yvals_=[0, 0.2],
-                                            values='conductance',
-                                            save_folder=now_folder)
-                return None, self.conductance_matrix, base_data
+                self.plot_leakage_matrix(self.conductance_matrix,
+                                         gate_names=self.gate_names,
+                                         values='conductance',
+                                         save_folder=now_folder)
             elif calculate == 'both':
-                self._plot_leakage_matrix(self.resistance_matrix,
-                                            gate_names=self.gate_names,
-                                            xvals_=[0.2, 0],
-                                            yvals_=[0, 0.2],
-                                            values='resistance',
-                                            save_folder=now_folder)
+                self.plot_leakage_matrix(self.resistance_matrix,
+                                         gate_names=self.gate_names,
+                                         values='resistance',
+                                         save_folder=now_folder)
 
-                self._plot_leakage_matrix(self.conductance_matrix,
-                                            gate_names=self.gate_names,
-                                            xvals_=[0.2, 0],
-                                            yvals_=[0, 0.2],
-                                            values='conductance',
-                                            save_folder=now_folder)
-                return self.resistance_matrix, self.conductance_matrix, base_data
-
-            
+                self.plot_leakage_matrix(self.conductance_matrix,
+                                         gate_names=self.gate_names,
+                                         values='conductance',
+                                         save_folder=now_folder)
 
     def _measure_currents(self, mode='differential', nplc=1):
         for channel in self.channels_to_measure:  # set nplc
@@ -151,21 +127,16 @@ class Leakage_matrix():
 
     def _calculate_leakage_matrix(self, mode='resistance'):
         if mode == 'resistance':
-            results_array = np.abs(self.voltage_difference)/np.abs(self.array_of_currents-self.current_start)
+            results_array = self.voltage_difference/(self.array_of_currents-self.current_start)
 
         elif mode == 'conductance':
-            results_array = np.abs(self.array_of_currents-self.current_start)/np.abs(self.voltage_difference)
+            results_array = (self.array_of_currents-self.current_start)/self.voltage_difference
         else:
             raise Exception(f'mode: {mode} not recognised, try "resistance" or "conductance"')
 
         return results_array
 
-        # for i,voltage_channel in enumerate(self.channels_to_measure):
-        #     results_array[i, :] = abs((voltages_start[self.voltage_indexes[voltage_channel.name]] + voltage_difference))/np.abs(array_of_currents[i,:])
-
-
     def _save_leakage_matrix(self, folder):
-        
         os.mkdir(folder)
 
         np.save(folder+'/starting_currents.npy', self.current_start)
@@ -179,36 +150,46 @@ class Leakage_matrix():
 
         if self.gate_names is not None:
             with open(folder+'/gate_names.json', 'w') as file:
-                file.write(json.dumps(self.gate_names))
+                json.dump(self.gate_names, file)
 
         with open(folder+'/voltage_index.json', 'w') as file:
-            file.write(json.dumps(self.voltage_indexes))
+            json.dump(self.voltage_indexes, file)
 
-    def _load_leakage_matrix(self, folder):
+    def load_leakage_matrix(self, folder):
         if not os.path.exists(folder):
             raise Exception(f'folder {folder} does not exist')
 
-        current_start = np.load(folder+'/starting_currents.npy')
-        voltages_start = np.load(folder+'/starting_voltages.npy')
-        leakage_matrix = np.load(folder+'/leakage_matrix.npy')
-        array_of_currents = np.load(folder+'/current_array.npy')
-        voltage_difference = np.load(folder+'/voltage_difference.npy')
+        self.current_start = np.load(folder+'/starting_currents.npy')
+        self.voltages_start = np.load(folder+'/starting_voltages.npy')
+        try:
+            self.resistance_matrix = np.load(folder+'/resistance_matrix.npy')
+            print('loaded resistance')
+        except:
+            print('resistance not found')
 
-        with open(folder+'/voltage_index.json', 'w') as file:
-            voltage_indexes = json.load(file)
-        gate_names = None
-        if os.path.exists(folder + '/gate_names.json'):
-            with open(folder + '/gate_names.json', 'w') as file:
-                gate_names = json.load(file)
+        try:
+            self.conductance_matrix = np.load(folder+'/conductance_matrix.npy')
+            print('loaded conductance')
+        except:
+            print('conductance not found')
+        self.array_of_currents = np.load(folder+'/current_array.npy')
+        self.voltage_difference = np.load(folder+'/voltage_difference.npy')
 
-        return voltages_start, current_start, leakage_matrix, voltage_indexes, array_of_currents, voltage_difference, gate_names
+        # with open(folder+'/voltage_index.json', 'w') as file:
+        #     self.voltage_indexes = json.load(file)
+        # gate_names = None
+        # if os.path.exists(folder + '/gate_names.json'):
+        #     with open(folder + '/gate_names.json', 'w') as file:
+        #         self.gate_names = json.load(file)
 
-    def _plot_leakage_matrix(self, leakage_matrix,
-                             gate_names: Union[dict, type(None)] = None,
-                             xvals_=[0.2, 0],
-                             yvals_=[0, 0.2],
-                             values='resistance',
-                             save_folder=None):
+
+    def plot_leakage_matrix(self, leakage_matrix,
+                            gate_names: Union[dict, type(None)] = None,
+                            tick_move_vals = [0.2,0.2],
+                            values='resistance',
+                            save_folder=None,
+                            cmin=None,
+                            cmax=None):
 
         fig = plt.figure(figsize=(11.5, 12.0))
         grids = gs.GridSpec(2, 8, height_ratios=[0.03, 1.0])
@@ -219,26 +200,33 @@ class Leakage_matrix():
 
         lm = copy.deepcopy(leakage_matrix)
         lm = np.abs(lm)
-        epsilon = np.abs(lm.max() - lm.min())*1e-6
-        lm += epsilon
-
-        if values == 'resistance':
-            cmin = 0
-            cmax = min(np.min(lm)+5e4, np.max(lm))
-
-        elif values == 'conductance':
+        if values == 'conductance':
             lm /= (1/25812.807)  # get in units of G0
-            cmin = 0
-            cmax = np.max(lm)
+        # epsilon = np.abs(lm.max() - lm.min())*1e-6
+        # lm += epsilon
+        if cmin is None and cmax is None:
+            if values == 'resistance':
+                
+                cmin = 1e8
+                cmax = np.min([10e9, np.max(lm)])
+                if cmax < 1e8:
+                    cmin = np.min(lm)
+                    cmax = np.max(lm)
+                if cmax > 10e9:
+                    cmax = 10e9  
+
+            elif values == 'conductance':
+                cmin = 0
+                cmax = np.max(lm)
 
         # Plot data
         im0 = plot_axis.pcolormesh(lm, shading='flat', edgecolor=cmx.gray(0.35), linewidth=1.5,
-                                    vmin=cmin, vmax=cmax)
+                                   vmin=cmin, vmax=cmax)
 
         if gate_names is None:
             gate_names_plot = [ch.name for ch in self.channels_to_measure]
         else:
-            if leakage_matrix.shape[0]!=len(gate_names):
+            if leakage_matrix.shape[0] != len(gate_names):
                 raise Exception(f'{len(gate_names)} provided names does not match size of leakage matrix {leakage_matrix.shape}')
 
             fixed_gate_names = {}
@@ -260,21 +248,23 @@ class Leakage_matrix():
         # Adjust tick position
         # dx = 0.15/len(gate_names)
         # dy = 0. 
-        xoffset = matplotlib.transforms.ScaledTranslation(xvals_[0], xvals_[1], fig.dpi_scale_trans)
-        yoffset = matplotlib.transforms.ScaledTranslation(yvals_[0], yvals_[1], fig.dpi_scale_trans)
+        xoffset = matplotlib.transforms.ScaledTranslation(tick_move_vals[0], 0, fig.dpi_scale_trans)
+        yoffset = matplotlib.transforms.ScaledTranslation(0, tick_move_vals[1], fig.dpi_scale_trans)
         for label in plot_axis.xaxis.get_majorticklabels():
             label.set_transform(label.get_transform() + xoffset)
         for label in plot_axis.yaxis.get_majorticklabels():
             label.set_transform(label.get_transform() + yoffset)
 
         # Plot colorbar
-        cb0 = fig.colorbar(im0, cax=color_axis, ticks = [cmin,(cmin+cmax)/2,cmax], orientation='horizontal')
+        cb0 = fig.colorbar(im0, cax=color_axis, ticks=[cmin, (cmin+cmax)/2, cmax], orientation='horizontal')
+
+        scale = self._get_scale(cmin, cmax)
         if values == 'resistance':
-            color_axis.set_title(r'Resistance [$ k\Omega $]', fontsize=26)
-            cb0.ax.set_xticklabels([int(cmin*1e-3),int((cmin+cmax)/2*1e-3),int(cmax*1e-3)])
+            color_axis.set_title(fr'Resistance [$ {scale[1]}\Omega $]', fontsize=26)
+            cb0.ax.set_xticklabels([f'<{cmin*scale[0]:.3f}', f'{(cmin+cmax)/2*scale[0]:.3f}', f'>{cmax*scale[0]:.3f}'])
         if values == 'conductance':
             color_axis.set_title(r'Conductance [$ G_0 $]', fontsize=26)
-            cb0.ax.set_xticklabels([cmin,np.round((cmin+cmax)/2,1),np.round(cmax,1)])
+            cb0.ax.set_xticklabels([f'<{cmin:.3f}', f'{(cmin+cmax)/2:.3f}', f'>{cmax:.3f}'])
 
         for t in cb0.ax.get_xticklabels():
             t.set_fontsize(18)
@@ -286,3 +276,12 @@ class Leakage_matrix():
         if save_folder is not None:
             plt.savefig(save_folder + f'/{values}.pdf', bbox_inches="tight")
             plt.savefig(save_folder + f'/{values}.png', dpi=400, bbox_inches="tight")
+
+    def _get_scale(self, cmin, cmax):
+        avg = (cmin+cmax)/2
+        if avg > 1e2 and avg < 1e5:
+            return (1e-3, 'k')
+        if avg > 1e5 and avg < 1e7:
+            return (1e-6, 'M')
+        if avg > 1e7:
+            return (1e-9, 'G')
