@@ -52,11 +52,12 @@ class Leakage_matrix():
                                mode='differential',
                                calculate='both',
                                nplc=1,
+                               repetitions=1,
                                plot=True,
                                save_folder=None):
 
         self.voltage_difference = voltage_difference
-        self._measure_currents(mode, nplc)
+        self._measure_currents(mode, nplc, repetitions)
 
         if calculate == 'resistance':
             self.resistance_matrix = self._calculate_leakage_matrix(mode='resistance')
@@ -97,40 +98,52 @@ class Leakage_matrix():
                                          values='conductance',
                                          save_folder=now_folder)
 
-    def _measure_currents(self, mode='differential', nplc=1):
+    def _measure_currents(self, mode='differential', nplc=1, repetitions=1):
         for channel in self.channels_to_measure:  # set nplc
             channel.measurement_nplc(nplc)
 
         time.sleep(1/50*nplc)
         self.voltages_start = np.array([channel.dc_constant_V() for channel in self.channels_to_measure])
-        self.current_start = np.array([channel.read_current_A()[0] for channel in self.channels_to_measure])
+        self.current_start = np.zeros((repetitions, len(self.channels_to_measure)))
+        for i in range(repetitions):
+            self.current_start[i, :] = np.array([channel.read_current_A()[0] for channel in self.channels_to_measure])
 
         if mode == 'absolute':
-            return self.voltages_start, self.current_start, None    
+            return self.voltages_start, self.current_start, None 
 
-        self.array_of_currents = np.zeros(shape=(len(self.channels_to_measure), len(self.channels_to_measure)))
-        i = 0
-        for voltage_channel in self.channels_to_measure:
+        self.array_of_currents = np.zeros(shape=(repetitions, len(self.channels_to_measure), len(self.channels_to_measure)))
+        for voltage_index, voltage_channel in enumerate(self.channels_to_measure):
             #  set to start + diff
             voltage_channel.dc_constant_V(self.voltages_start[self.voltage_indexes[voltage_channel.name]] + self.voltage_difference)
-            currents = []
 
-            time.sleep(1/50*nplc)  #wait for NPLC
-            for curr_channel in self.channels_to_measure:
-                currents.append(curr_channel.read_current_A()[0])
+            for repetition in range(repetitions):
+                currents = []
+                time.sleep(1/50*nplc)  # wait for NPLC
+                for curr_channel in self.channels_to_measure:
+                    currents.append(curr_channel.read_current_A()[0])
 
-            self.array_of_currents[i, :] = np.array(currents)
-            i += 1
+                self.array_of_currents[repetition, voltage_index, :] = np.array(currents)
 
             #  return to start
             voltage_channel.dc_constant_V(self.voltages_start[self.voltage_indexes[voltage_channel.name]])
 
+        if repetitions != 1:
+            self.averaged_array_of_currents = np.average(self.array_of_currents, axis=0)
+            self.var_of_current = np.var(self.array_of_currents, axis=0)
+            self.averaged_current_start = np.average(self.current_start, axis=0)
+            self.var_of_current_start = np.var(self.current_start, axis=0)
+        else:
+            self.averaged_array_of_currents = np.squeeze(self.array_of_currents)
+            self.var_of_current = None
+            self.averaged_current_start = np.squeeze(self.current_start)
+            self.var_of_current_start = None
+
     def _calculate_leakage_matrix(self, mode='resistance'):
         if mode == 'resistance':
-            results_array = self.voltage_difference/(self.array_of_currents-self.current_start)
+            results_array = self.voltage_difference/(self.averaged_array_of_currents-self.averaged_current_start)
 
         elif mode == 'conductance':
-            results_array = (self.array_of_currents-self.current_start)/self.voltage_difference
+            results_array = (self.averaged_array_of_currents-self.averaged_current_start)/self.voltage_difference
         else:
             raise Exception(f'mode: {mode} not recognised, try "resistance" or "conductance"')
 
@@ -182,10 +195,9 @@ class Leakage_matrix():
         #     with open(folder + '/gate_names.json', 'w') as file:
         #         self.gate_names = json.load(file)
 
-
     def plot_leakage_matrix(self, leakage_matrix,
                             gate_names: Union[dict, type(None)] = None,
-                            tick_move_vals = [0.2,0.2],
+                            tick_move_vals=[0.2, 0.2],
                             values='resistance',
                             save_folder=None,
                             cmin=None,
@@ -206,14 +218,13 @@ class Leakage_matrix():
         # lm += epsilon
         if cmin is None and cmax is None:
             if values == 'resistance':
-                
                 cmin = 1e8
                 cmax = np.min([10e9, np.max(lm)])
                 if cmax < 1e8:
                     cmin = np.min(lm)
                     cmax = np.max(lm)
                 if cmax > 10e9:
-                    cmax = 10e9  
+                    cmax = 10e9
 
             elif values == 'conductance':
                 cmin = 0
