@@ -3,7 +3,7 @@ from qcodes.dataset.data_set_protocol import DataSetProtocol
 
 
 def qcodes_to_labber(data: DataSetProtocol) -> None:
-    file_name = f"{data.sample_name}_{data.exp_name}_{data.captured_run_id}".replace(
+    file_name = f"{data.sample_name}_{data.exp_name}_{data.captured_run_id}_{data.name}".replace(
         " ", "_"
     )
     xdata = data.to_xarray_dataset()
