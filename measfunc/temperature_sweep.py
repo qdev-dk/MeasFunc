@@ -1,6 +1,6 @@
 from triton import OxfordTriton
 from qcodes.instrument_drivers.Lakeshore.Model_372 import Model_372
-from typing import Tuple, NoReturn, Union
+from typing import Tuple, NoReturn, Union, Callable, Optional
 import numpy as np
 from time import sleep
 import logging
@@ -293,7 +293,7 @@ class Temperature(Parameter):
             self.wait_equilibration_time,
         )
 
-    def construct_ch(self, lakeshore: Model_372) -> callable:
+    def construct_ch(self, lakeshore: Model_372) -> Callable:
         temp_str = format_ch(self.ch_of_interest)
         return eval(f'lakeshore.ch{temp_str}.temperature')
 
@@ -306,13 +306,13 @@ def format_ch(temperature_ch: int) -> str:
 def live_configurator(
     fridge: OxfordTriton,
     lakeshore: Model_372,
-    sample_temp: ParameterBase,
+    sample_temp: Union[Parameter, Callable],
     future_setpoint: float, 
     heater_range: float,
     turbo_state: str,
     _heater_range_temp: list,
     _heater_range_curr: list,
-) -> Tuple[float, float]:
+) -> Tuple[str, float]:
     
     state = {1: 'on', -1: 'off'}
     if critical_temp == future_setpoint:
@@ -363,7 +363,7 @@ def _toggle_turbo(
         best_state: str, 
         turbo_state: str,
         future_setpoint: float,
-        sample_temp: ParameterBase,
+        sample_temp: Union[Parameter, Callable],
         critical_speed: float,
 ) -> str:
 
@@ -393,12 +393,13 @@ def _get_best_heater_range(
     
     for temperature_threshold, current in zip(_heater_range_temp, _heater_range_curr):
         if temperature < temperature_threshold:
-            return current
+            break
+    return current
 
 
 def _set_heater_range(
         lakeshore: Model_372,
-        sample_temp: Parameter,
+        sample_temp: Union[Parameter, Callable],
         best_range: float,
         heater_range: float,
 ) -> float:
@@ -415,14 +416,14 @@ def _set_heater_range(
 def _move_to_setpoint(
         fridge: OxfordTriton,
         lakeshore: Model_372,
-        sample_temp: Parameter,
+        sample_temp: Union[Parameter, Callable],
         setpoint: float, 
         magnet_active: bool, 
         t_magnet_ch: int,
         turbo_state: str,
         heater_range: float,
         temperature_tolerance: float
-) -> None:
+) -> Tuple[str, float]:
 
     if magnet_active == True:
         magnet_temperature = magnet_check(lakeshore, t_magnet_ch)
@@ -491,15 +492,15 @@ def _set_active_channels(
                       is switched off')
 
     if t_mc_ch < 10:
-        t_mc_ch = '0' + str(t_mc_ch)
+        t_mc_ch_str = '0' + str(t_mc_ch)
     else:
-        t_mc_ch = str(t_mc_ch)
+        t_mc_ch_str = str(t_mc_ch)
     if t_magnet_ch < 10:
-        t_magnet_ch = '0' + str(t_magnet_ch)
+        t_magnet_ch_str = '0' + str(t_magnet_ch)
     else:
-        t_magnet_ch = str(t_magnet_ch)
+        t_magnet_ch_str = str(t_magnet_ch)
 
-    keep_on_channels = [t_mc_ch, t_magnet_ch]
+    keep_on_channels = [t_mc_ch_str, t_magnet_ch_str]
     keep_on_channels = ['ch%s' % ch for ch in keep_on_channels]
     for ch in keep_on_channels:
         eval(f'lakeshore.' + ch + '.enabled(True)')
@@ -517,7 +518,7 @@ def _init_sweep_state(
                 wait_cycle_time: float,
                 wait_tolerance: float,
                 wait_equilibration_time: float,
-) -> Tuple[str, str]:
+) -> Tuple[str, float]:
 
     lakeshore.sample_heater.wait_cycle_time(wait_cycle_time)
     lakeshore.sample_heater.wait_tolerance(wait_tolerance)
@@ -540,7 +541,7 @@ def _init_sweep_state(
     return fridge.turb1_state(), lakeshore.sample_heater.output_range()
 
 
-def _stable(sample_temp: Parameter, setpoint: float, tolerance: float=2e-3):
+def _stable(sample_temp: Union[Parameter, Callable], setpoint: float, tolerance: float=2e-3):
     diff = 0
     for _ in range(4):
         diff += abs(sample_temp() - setpoint)
